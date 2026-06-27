@@ -14,6 +14,7 @@ Security model (for a personal tool):
       web page that happens to know the port still can't trigger downloads.
 """
 
+import hmac
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -69,7 +70,11 @@ def make_server(manager, settings, log=lambda msg: None):
                 self._reply(404, {"ok": False, "error": "not found"})
                 return
 
-            if self.headers.get("X-OneClick-Token", "") != settings.token:
+            # Constant-time compare so the token can't be guessed by timing the
+            # response. Encode to bytes first: compare_digest rejects non-ASCII
+            # str input with a TypeError, and a header value is attacker-supplied.
+            sent = self.headers.get("X-OneClick-Token", "").encode("utf-8")
+            if not hmac.compare_digest(sent, settings.token.encode("utf-8")):
                 self._reply(403, {"ok": False, "error": "bad or missing token"})
                 return
 
