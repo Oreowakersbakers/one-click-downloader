@@ -30,7 +30,7 @@ hands it to this local helper over `http://127.0.0.1`.
 | `oneclickdl/downloader.py` | The download queue + worker (UI-agnostic) |
 | `oneclickdl/server.py` | Localhost API the extension talks to |
 | `oneclickdl/gui.py` | The small desktop window |
-| `extension/` | Browser extension *(next phase — not built yet)* |
+| `extension/` | The browser extension (the on-video download button) |
 
 Each module has one job, so adding features (a settings screen, a download
 history, more sites) touches one file instead of all of them.
@@ -60,8 +60,30 @@ its options once. It stops random web pages from triggering downloads on your
 machine. The helper only listens on `127.0.0.1`, so nothing on your network can
 reach it either.
 
+## Install the browser extension
+
+The extension adds a download button to the top-right of any video you hover.
+
+1. Start the helper app (`python oneclick.py`) and leave its window open.
+2. In Chrome/Edge/Brave, go to `chrome://extensions`.
+3. Turn on **Developer mode** (top-right).
+4. Click **Load unpacked** and select the `extension/` folder.
+5. Open the extension's **options** (right-click its icon → Options, or click the
+   icon → "Pairing / settings"), paste the **pairing token** from the app
+   window, and click **Test connection** — it should say connected.
+
+Now hover any video on YouTube/TikTok/X and click the download button. The file
+lands in `Downloads/OneClickDL/`. The toolbar icon also has a paste-a-link box.
+
+### How URLs are picked
+
+On a video's own page (a YouTube watch page, a tweet, a TikTok) the page URL is
+used. In a feed, the extension finds that specific video's permalink from its
+card. Sites it doesn't have a special rule for fall back to the page URL.
+
 ## Status
 
 - [x] Restructured into a maintainable package
 - [x] Local helper server + manual desktop fallback
-- [ ] Browser extension with the on-video download button *(next)*
+- [x] Browser extension with the on-video download button
+- [ ] Polish: per-download history, more site rules, packaging/auto-start

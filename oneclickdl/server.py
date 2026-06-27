@@ -33,6 +33,8 @@ def make_server(manager, settings, log=lambda msg: None):
             self.send_header(
                 "Access-Control-Allow-Headers", "Content-Type, X-OneClick-Token"
             )
+            # Allow browsers' Private Network Access preflight (page -> localhost).
+            self.send_header("Access-Control-Allow-Private-Network", "true")
 
         def _reply(self, code, payload):
             body = json.dumps(payload).encode("utf-8")

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+        width: 260px;
+        margin: 0;
+        padding: 14px;
+        color: #1f2937;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: #f3f4f6;
+        margin-bottom: 12px;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #9ca3af;
+        flex: 0 0 auto;
+      }
+      .dot.ok {
+        background: #16a34a;
+      }
+      .dot.err {
+        background: #dc2626;
+      }
+      label {
+        font-weight: 600;
+        display: block;
+        margin-bottom: 4px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 7px 9px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      button {
+        width: 100%;
+        margin-top: 8px;
+        padding: 8px;
+        border: 0;
+        border-radius: 6px;
+        background: #4f46e5;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      a {
+        display: inline-block;
+        margin-top: 12px;
+        color: #4f46e5;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #msg {
+        margin-top: 8px;
+        font-size: 12px;
+        min-height: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>One-Click Downloader</h1>
+    <div class="status">
+      <span id="dot" class="dot"></span>
+      <span id="statusText">Checking helper app…</span>
+    </div>
+
+    <label for="url">Paste a link</label>
+    <input id="url" type="text" placeholder="https://…" />
+    <button id="go">Download</button>
+    <div id="msg"></div>
+
+    <a id="openOptions">Pairing / settings</a>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
