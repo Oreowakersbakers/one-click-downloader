@@ -45,7 +45,10 @@
       return;
     }
     btn.style.top = `${Math.max(r.top + 10, 6)}px`;
-    btn.style.left = `${r.right - 46}px`;
+    // Clamp into the viewport: the button is 36px wide (content.css), so keep
+    // it between a 6px left margin and the right edge less its width + margin.
+    const left = Math.min(Math.max(r.right - 46, 6), innerWidth - 42);
+    btn.style.left = `${left}px`;
   }
 
   function show(video) {

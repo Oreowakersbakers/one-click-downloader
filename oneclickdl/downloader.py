@@ -28,6 +28,10 @@ EV_PROGRESS = "progress"   # data = percent (float)
 EV_LOG = "log"             # data = raw output line (str)
 EV_DONE = "done"
 EV_FAILED = "failed"
+EV_CANCELLED = "cancelled"
+
+# Once a job reaches one of these it's finished and can't be cancelled.
+_TERMINAL = ("done", "failed", "cancelled")
 
 _PERCENT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)%")
 
@@ -49,9 +53,11 @@ def _is_http_url(url):
 
 @dataclass
 class Job:
+    # queued -> running -> done | failed | cancelled
+    # (cancelling is a brief internal state while the process is being killed)
     id: int
     url: str
-    status: str = "queued"  # queued | running | done | failed
+    status: str = "queued"
     title: str = ""
     percent: float = 0.0
     error: str = ""
@@ -69,10 +75,15 @@ class DownloadManager:
         self._settings = settings
         self._get_ytdlp = get_ytdlp
         self._queue = queue.Queue()
-        self._jobs = {}
         self._ids = itertools.count(1)
         self._listeners = []
         self._lock = threading.Lock()
+        # Active (queued or running) jobs, so cancel() can find one by id.
+        # Entries are removed the moment a job reaches a terminal state, so this
+        # stays bounded by the number of in-flight jobs — never grows unbounded.
+        self._active = {}
+        # id -> Popen for the job currently running (at most one; serial worker).
+        self._procs = {}
         threading.Thread(target=self._run, daemon=True).start()
 
     # ---- listeners ----
@@ -101,20 +112,70 @@ class DownloadManager:
         url = (url or "").strip()
         if not url or not _is_http_url(url):
             return None
-        job = Job(id=next(self._ids), url=url)
+        # Guard id allocation + registration: submit() is called from multiple
+        # HTTP worker threads as well as the GUI thread.
         with self._lock:
-            self._jobs[job.id] = job
+            job = Job(id=next(self._ids), url=url)
+            self._active[job.id] = job
         self._emit(EV_QUEUED, job)
         self._queue.put(job)
         return job
+
+    def cancel(self, job_id):
+        """Cancel a queued or running job. Returns True if it was cancellable.
+
+        A queued job is dropped before it starts; a running job's yt-dlp process
+        is terminated so the serial worker can move on to the next job (this is
+        what stops one wedged download from blocking the whole queue).
+        """
+        with self._lock:
+            job = self._active.get(job_id)
+            if job is None or job.status in _TERMINAL:
+                return False
+            if job.status == "queued":
+                # Not started yet — mark it so the worker skips it when dequeued.
+                job.status = "cancelled"
+                self._active.pop(job_id, None)
+                proc = None
+                queued = True
+            else:
+                # running (or already cancelling) — kill the process. proc may
+                # be None for the brief window before Popen returns; _process
+                # re-checks the status right after spawning and kills it then.
+                job.status = "cancelling"
+                proc = self._procs.get(job_id)
+                queued = False
+        if proc is not None:
+            self._terminate(proc)
+        if queued:
+            self._emit(EV_CANCELLED, job)
+        return True
+
+    @staticmethod
+    def _terminate(proc):
+        try:
+            proc.terminate()
+        except Exception:  # noqa: BLE001 - already gone / race on exit
+            pass
 
     # ---- worker loop ----
     def _run(self):
         while True:
             job = self._queue.get()
             try:
-                self._process(job)
+                # Claim the job. Done under the lock so a cancel() racing right
+                # at start-up either wins (status already "cancelled", we skip)
+                # or loses (we flip to "running" and it takes the kill path).
+                with self._lock:
+                    skip = job.status == "cancelled"
+                    if not skip:
+                        job.status = "running"
+                if not skip:
+                    self._process(job)
             finally:
+                with self._lock:
+                    self._active.pop(job.id, None)
+                    self._procs.pop(job.id, None)
                 self._queue.task_done()
 
     def _process(self, job):
@@ -128,7 +189,6 @@ class DownloadManager:
         download_dir = self._settings.download_dir
         os.makedirs(download_dir, exist_ok=True)
 
-        job.status = "running"
         self._emit(EV_STARTED, job)
 
         cmd = [
@@ -141,8 +201,9 @@ class DownloadManager:
             job.url,
         ]
         try:
-            # CREATE_NO_WINDOW hides the console flash on Windows.
-            creationflags = 0x08000000 if config.IS_WINDOWS else 0
+            # CREATE_NO_WINDOW hides the console flash on Windows. The constant
+            # only exists on Windows, so reference it only on that branch.
+            creationflags = subprocess.CREATE_NO_WINDOW if config.IS_WINDOWS else 0
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -150,11 +211,22 @@ class DownloadManager:
                 text=True,
                 creationflags=creationflags,
             )
+            # Register the process so cancel() can reach it. If a cancel landed
+            # while we were spawning, honor it now.
+            with self._lock:
+                self._procs[job.id] = proc
+                kill_now = job.status == "cancelling"
+            if kill_now:
+                self._terminate(proc)
+
             for line in proc.stdout:
                 self._handle_line(job, line.rstrip("\n"))
             proc.wait()
 
-            if proc.returncode == 0:
+            if job.status == "cancelling":
+                job.status = "cancelled"
+                self._emit(EV_CANCELLED, job)
+            elif proc.returncode == 0:
                 job.status = "done"
                 job.percent = 100.0
                 self._emit(EV_DONE, job)
@@ -172,13 +244,17 @@ class DownloadManager:
             return
         self._emit(EV_LOG, job, line)
 
-        match = _PERCENT_RE.search(line)
-        if match:
-            try:
-                job.percent = float(match.group(1))
-                self._emit(EV_PROGRESS, job, job.percent)
-            except ValueError:
-                pass
+        # Only treat yt-dlp's own progress lines as progress — otherwise a "%"
+        # anywhere in a title or message would jiggle the bar. With --newline,
+        # progress arrives as "[download]  12.3% of ...".
+        if line.startswith("[download]"):
+            match = _PERCENT_RE.search(line)
+            if match:
+                try:
+                    job.percent = float(match.group(1))
+                    self._emit(EV_PROGRESS, job, job.percent)
+                except ValueError:
+                    pass
 
         if "Destination:" in line:
             job.title = os.path.basename(line.split("Destination:", 1)[1].strip())

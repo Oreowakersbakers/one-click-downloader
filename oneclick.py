@@ -50,7 +50,7 @@ def main():
     try:
         server = make_server(manager, settings, window.log)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        window.set_server_running(settings.port, settings.token)
+        window.set_server_running(settings.port)
     except OSError as e:
         window.log(f"Could not start helper server: {e}\n")
         window.conn_var.set("Helper server: failed to start (port in use?)")

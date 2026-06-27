@@ -25,6 +25,8 @@ class Window:
         self.manager = manager
         self.settings = settings
         self.tray = None
+        # The job currently running, so the Cancel button knows what to stop.
+        self._active_job_id = None
 
         root.title("One-Click Downloader")
         root.geometry("600x520")
@@ -45,8 +47,14 @@ class Window:
         btn_row.pack(fill="x", **pad)
         self.dl_btn = ttk.Button(btn_row, text="Download", command=self.start_download)
         self.dl_btn.pack(side="left")
+        # Enabled only while a download is running (see _apply_event). Cancelling
+        # the running job frees the serial queue so later jobs can proceed.
+        self.cancel_btn = ttk.Button(
+            btn_row, text="Cancel", command=self.cancel_download, state="disabled"
+        )
+        self.cancel_btn.pack(side="left", padx=8)
         ttk.Button(btn_row, text="Open folder", command=self.open_folder).pack(
-            side="left", padx=8
+            side="left"
         )
 
         # ---- progress + status ----
@@ -129,7 +137,7 @@ class Window:
     def set_status(self, text):
         self.root.after(0, lambda: self.status.set(text))
 
-    def set_server_running(self, port, token):
+    def set_server_running(self, port):
         self.root.after(
             0,
             lambda: self.conn_var.set(
@@ -149,6 +157,10 @@ class Window:
             )
             return
         self.url_var.set("")
+
+    def cancel_download(self):
+        if self._active_job_id is not None:
+            self.manager.cancel(self._active_job_id)
 
     def open_folder(self):
         path = self.settings.download_dir
@@ -171,8 +183,12 @@ class Window:
 
     def _apply_event(self, event, job, data):
         if event == downloader.EV_QUEUED:
-            self.log(f"\n>>> queued: {job.url}\n")
+            # Already on the GUI thread here — append directly rather than
+            # re-deferring through self.log (which schedules another after()).
+            self._append_log(f"\n>>> queued: {job.url}\n")
         elif event == downloader.EV_STARTED:
+            self._active_job_id = job.id
+            self.cancel_btn.config(state="normal")
             self.progress["value"] = 0
             self.set_status("Downloading...")
         elif event == downloader.EV_PROGRESS:
@@ -181,9 +197,22 @@ class Window:
         elif event == downloader.EV_LOG:
             self._append_log(data + "\n")
         elif event == downloader.EV_DONE:
+            self._clear_active(job)
             self.progress["value"] = 100
             self.set_status("Done! Saved to your downloads folder.")
             self._append_log("✓ Finished.\n")
         elif event == downloader.EV_FAILED:
+            self._clear_active(job)
             self.set_status("Failed — see log.")
             self._append_log(f"✗ {job.error}\n")
+        elif event == downloader.EV_CANCELLED:
+            self._clear_active(job)
+            self.progress["value"] = 0
+            self.set_status("Cancelled.")
+            self._append_log("■ Cancelled.\n")
+
+    def _clear_active(self, job):
+        """Drop Cancel-button state once the active job reaches a terminal state."""
+        if job.id == self._active_job_id:
+            self._active_job_id = None
+            self.cancel_btn.config(state="disabled")

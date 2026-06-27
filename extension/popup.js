@@ -4,15 +4,21 @@ const urlEl = document.getElementById("url");
 const msg = document.getElementById("msg");
 
 // Check the helper app on open.
-chrome.runtime.sendMessage({ type: "ping" }).then((res) => {
-  if (res && res.ok) {
-    dot.className = "dot ok";
-    statusText.textContent = "Helper app connected.";
-  } else {
+chrome.runtime
+  .sendMessage({ type: "ping" })
+  .then((res) => {
+    if (res && res.ok) {
+      dot.className = "dot ok";
+      statusText.textContent = "Helper app connected.";
+    } else {
+      dot.className = "dot err";
+      statusText.textContent = "Helper app not running.";
+    }
+  })
+  .catch(() => {
     dot.className = "dot err";
     statusText.textContent = "Helper app not running.";
-  }
-});
+  });
 
 document.getElementById("go").addEventListener("click", async () => {
   const url = urlEl.value.trim();
@@ -21,12 +27,16 @@ document.getElementById("go").addEventListener("click", async () => {
     return;
   }
   msg.textContent = "Sending…";
-  const res = await chrome.runtime.sendMessage({ type: "download", url });
-  if (res && res.ok) {
-    msg.textContent = "Sent to downloader ✓";
-    urlEl.value = "";
-  } else {
-    msg.textContent = (res && res.error) || "Something went wrong.";
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "download", url });
+    if (res && res.ok) {
+      msg.textContent = "Sent to downloader ✓";
+      urlEl.value = "";
+    } else {
+      msg.textContent = (res && res.error) || "Something went wrong.";
+    }
+  } catch (err) {
+    msg.textContent = "Extension error — try reopening the popup.";
   }
 });
 

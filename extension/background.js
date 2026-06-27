@@ -7,6 +7,7 @@
 // stop an in-page script from reaching localhost.
 
 const DEFAULT_PORT = 53117;
+const FETCH_TIMEOUT_MS = 5000; // a helper that accepts but never replies must not hang us
 
 async function getConfig() {
   const { port = DEFAULT_PORT, token = "" } = await chrome.storage.sync.get([
@@ -21,6 +22,7 @@ async function pingHelper() {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/ping`, {
       cache: "no-store",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok && data.app === "oneclick-dl" };
@@ -45,6 +47,7 @@ async function sendDownload(url) {
         "X-OneClick-Token": token,
       },
       body: JSON.stringify({ url }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
