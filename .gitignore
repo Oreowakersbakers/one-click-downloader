@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# App runtime data (downloaded yt-dlp binary, settings with the token, etc.)
+# These live in ~/.oneclick-dl, but ignore any local copies too.
+.oneclick-dl/
+*.log
