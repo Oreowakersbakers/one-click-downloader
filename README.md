@@ -1,0 +1,67 @@
+# One-Click Downloader
+
+Download videos from almost any site (YouTube, TikTok, X/Twitter, etc.) with one
+click. It wraps [yt-dlp](https://github.com/yt-dlp/yt-dlp), the open-source engine
+that does the real work.
+
+## How it's built
+
+Two cooperating parts (the browser extension lands in the next phase):
+
+```
+┌──────────────────────────┐   sends URL    ┌───────────────────────────┐
+│  Browser extension       │ ─────────────► │  Local helper (this app)  │
+│  download button on the  │                │  Python + yt-dlp          │
+│  video — coming next      │ ◄───────────── │  runs the download        │
+└──────────────────────────┘    "done"      └───────────────────────────┘
+```
+
+A desktop program can't draw a button inside a web page, and a browser
+extension can't run yt-dlp. So the extension only captures the video URL and
+hands it to this local helper over `http://127.0.0.1`.
+
+### Project layout
+
+| File | Responsibility |
+|------|----------------|
+| `oneclick.py` | Launcher — wires everything together |
+| `oneclickdl/config.py` | Paths, saved settings, the pairing token |
+| `oneclickdl/ytdlp.py` | Finds / auto-downloads the yt-dlp binary |
+| `oneclickdl/downloader.py` | The download queue + worker (UI-agnostic) |
+| `oneclickdl/server.py` | Localhost API the extension talks to |
+| `oneclickdl/gui.py` | The small desktop window |
+| `extension/` | Browser extension *(next phase — not built yet)* |
+
+Each module has one job, so adding features (a settings screen, a download
+history, more sites) touches one file instead of all of them.
+
+## Requirements
+
+- Python 3.8+ (on Windows tick **Add to PATH** when installing).
+- That's it — yt-dlp downloads itself on first run (Windows). On Mac/Linux:
+  `brew install yt-dlp` or `pip install yt-dlp`.
+- Optional, for best YouTube quality: install `ffmpeg` (`winget install ffmpeg`).
+
+## Run it
+
+Double-click `oneclick.py`, or from a terminal:
+
+```
+python oneclick.py
+```
+
+Files land in `Downloads/OneClickDL/`.
+
+## The pairing token
+
+On first run the app generates a random token and shows it in the window under
+**Browser extension**. When the extension exists, you'll paste this token into
+its options once. It stops random web pages from triggering downloads on your
+machine. The helper only listens on `127.0.0.1`, so nothing on your network can
+reach it either.
+
+## Status
+
+- [x] Restructured into a maintainable package
+- [x] Local helper server + manual desktop fallback
+- [ ] Browser extension with the on-video download button *(next)*
