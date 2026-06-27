@@ -143,7 +143,11 @@ class Window:
         if not url:
             messagebox.showinfo("No URL", "Paste a video link first.")
             return
-        self.manager.submit(url)
+        if not self.manager.submit(url):
+            messagebox.showinfo(
+                "Invalid link", "That doesn't look like a valid http(s) link."
+            )
+            return
         self.url_var.set("")
 
     def open_folder(self):

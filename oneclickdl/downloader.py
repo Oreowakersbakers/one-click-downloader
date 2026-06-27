@@ -17,6 +17,7 @@ import itertools
 import threading
 import subprocess
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from . import config
 
@@ -29,6 +30,19 @@ EV_DONE = "done"
 EV_FAILED = "failed"
 
 _PERCENT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)%")
+
+
+def _is_http_url(url):
+    """True only for real http(s) URLs.
+
+    This keeps non-URL input — and crucially anything that looks like a yt-dlp
+    option flag (e.g. ``--exec=...``) — from ever reaching the downloader.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
 @dataclass
@@ -77,9 +91,13 @@ class DownloadManager:
 
     # ---- submitting work ----
     def submit(self, url):
-        """Queue a URL for download. Returns the Job, or None if url is blank."""
+        """Queue a URL for download.
+
+        Returns the Job, or None if the URL is blank or not a valid http(s)
+        link (rejecting the latter is what stops option-injection into yt-dlp).
+        """
         url = (url or "").strip()
-        if not url:
+        if not url or not _is_http_url(url):
             return None
         job = Job(id=next(self._ids), url=url)
         with self._lock:
@@ -117,6 +135,7 @@ class DownloadManager:
             "--newline",
             "-P", download_dir,
             "-o", "%(title).80s [%(id)s].%(ext)s",
+            "--",  # everything after this is positional — never an option flag
             job.url,
         ]
         try:
