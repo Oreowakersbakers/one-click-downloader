@@ -30,6 +30,7 @@ hands it to this local helper over `http://127.0.0.1`.
 | `oneclickdl/downloader.py` | The download queue + worker (UI-agnostic) |
 | `oneclickdl/server.py` | Localhost API the extension talks to |
 | `oneclickdl/gui.py` | The small desktop window |
+| `oneclickdl/tray.py` | Windows system-tray icon (pure ctypes, no deps) |
 | `extension/` | The browser extension (the on-video download button) |
 
 Each module has one job, so adding features (a settings screen, a download
@@ -50,8 +51,11 @@ everything, including the helper server.)
 
 Alternatively, from a terminal: `python oneclick.py`.
 
-Files land in `Downloads/OneClickDL/`. The window can be minimized while you
-browse — it just needs to stay running so the extension can reach it.
+Files land in `Downloads/OneClickDL/`. On Windows the app lives in the **system
+tray** (the icons by the clock): minimizing or closing the window tucks it down
+there instead of quitting. Double-click the tray icon to reopen the window, or
+right-click it → **Quit** to fully exit. It keeps running quietly so the
+extension can always reach it.
 
 ## The pairing token
 
@@ -87,4 +91,5 @@ card. Sites it doesn't have a special rule for fall back to the page URL.
 - [x] Restructured into a maintainable package
 - [x] Local helper server + manual desktop fallback
 - [x] Browser extension with the on-video download button
-- [ ] Polish: per-download history, more site rules, packaging/auto-start
+- [x] Minimize/close to the Windows system tray
+- [ ] Polish: auto-start on login, per-download history, more site rules

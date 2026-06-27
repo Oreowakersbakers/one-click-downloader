@@ -24,6 +24,7 @@ class Window:
         self.root = root
         self.manager = manager
         self.settings = settings
+        self.tray = None
 
         root.title("One-Click Downloader")
         root.geometry("600x520")
@@ -82,6 +83,38 @@ class Window:
 
         # Listen for download events (called from the worker thread).
         manager.add_listener(self._on_event)
+
+    # ---- system tray ----
+    def enable_tray(self, tray):
+        """Route the window's close/minimize buttons to the tray icon."""
+        self.tray = tray
+        # Closing [X] hides to the tray instead of quitting.
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
+        # Minimizing also tucks it into the tray (off the taskbar).
+        self.root.bind("<Unmap>", self._on_unmap)
+
+    def _on_unmap(self, event):
+        if event.widget is self.root and self.root.state() == "iconic":
+            self.hide_to_tray()
+
+    def hide_to_tray(self):
+        self.root.withdraw()
+        if self.tray:
+            self.tray.notify_once(
+                "One-Click Downloader",
+                "Still running here. Right-click to quit.",
+            )
+
+    def restore(self):
+        self.root.deiconify()
+        self.root.state("normal")
+        self.root.lift()
+        self.root.focus_force()
+
+    def quit_app(self):
+        if self.tray:
+            self.tray.stop()
+        self.root.destroy()
 
     # ---- thread-safe helpers ----
     def log(self, msg):
