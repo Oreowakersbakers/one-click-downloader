@@ -21,7 +21,7 @@ import tkinter as tk
 # Make the package importable when double-clicked from any working directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from oneclickdl import config, ytdlp  # noqa: E402
+from oneclickdl import config, ytdlp, tray  # noqa: E402
 from oneclickdl.downloader import DownloadManager  # noqa: E402
 from oneclickdl.server import make_server  # noqa: E402
 from oneclickdl.gui import Window  # noqa: E402
@@ -54,6 +54,15 @@ def main():
     except OSError as e:
         window.log(f"Could not start helper server: {e}\n")
         window.conn_var.set("Helper server: failed to start (port in use?)")
+
+    # Add a system-tray icon (Windows). Menu/double-click actions arrive on the
+    # tray thread, so bounce them onto the GUI thread via root.after.
+    tray_icon = tray.start(
+        on_open=lambda: root.after(0, window.restore),
+        on_quit=lambda: root.after(0, window.quit_app),
+    )
+    if tray_icon:
+        window.enable_tray(tray_icon)
 
     root.mainloop()
 
