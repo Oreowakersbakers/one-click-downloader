@@ -33,6 +33,20 @@ YTDLP_URL = (
 DEFAULT_PORT = 53117
 
 
+def _coerce_port(value):
+    """Return a valid TCP port, falling back to DEFAULT_PORT on bad input."""
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_PORT
+    return port if 1 <= port <= 65535 else DEFAULT_PORT
+
+
+def _coerce_dir(value):
+    """Return a usable download dir, falling back to the default on bad input."""
+    return value if isinstance(value, str) and value.strip() else DEFAULT_DOWNLOAD_DIR
+
+
 # ---------------------------------------------------------------------------
 # User-editable settings (persisted to APP_DIR/settings.json)
 # ---------------------------------------------------------------------------
@@ -53,10 +67,14 @@ class Settings:
         except (OSError, ValueError):
             data = {}
 
+        token = data.get("token", "")
+        if not isinstance(token, str):
+            token = ""
+
         settings = cls(
-            download_dir=data.get("download_dir", DEFAULT_DOWNLOAD_DIR),
-            port=int(data.get("port", DEFAULT_PORT)),
-            token=data.get("token", ""),
+            download_dir=_coerce_dir(data.get("download_dir")),
+            port=_coerce_port(data.get("port")),
+            token=token,
         )
         if not settings.token:
             settings.token = secrets.token_urlsafe(24)

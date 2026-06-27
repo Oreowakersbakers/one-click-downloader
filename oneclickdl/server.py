@@ -17,6 +17,10 @@ Security model (for a personal tool):
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# The body is only ever a tiny JSON object ({"url": "..."}); cap it so a client
+# can't claim a huge Content-Length and make us allocate / read unbounded data.
+MAX_BODY_BYTES = 64 * 1024
+
 
 def make_server(manager, settings, log=lambda msg: None):
     """Build (but don't start) the HTTP server. Call .serve_forever() on it."""
@@ -69,7 +73,15 @@ def make_server(manager, settings, log=lambda msg: None):
                 self._reply(403, {"ok": False, "error": "bad or missing token"})
                 return
 
-            length = int(self.headers.get("Content-Length", 0) or 0)
+            try:
+                length = int(self.headers.get("Content-Length", 0) or 0)
+            except ValueError:
+                self._reply(400, {"ok": False, "error": "invalid Content-Length"})
+                return
+            if length < 0 or length > MAX_BODY_BYTES:
+                self._reply(413, {"ok": False, "error": "request body too large"})
+                return
+
             raw = self.rfile.read(length) if length else b"{}"
             try:
                 data = json.loads(raw.decode("utf-8") or "{}")
@@ -79,7 +91,7 @@ def make_server(manager, settings, log=lambda msg: None):
 
             job = manager.submit(data.get("url", ""))
             if not job:
-                self._reply(400, {"ok": False, "error": "no url provided"})
+                self._reply(400, {"ok": False, "error": "missing or invalid url"})
                 return
 
             log(f"Extension requested: {job.url}\n")
