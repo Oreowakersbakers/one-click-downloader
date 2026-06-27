@@ -34,17 +34,26 @@ DEFAULT_PORT = 53117
 
 
 def _coerce_port(value):
-    """Return a valid TCP port, falling back to DEFAULT_PORT on bad input."""
-    try:
-        port = int(value)
-    except (TypeError, ValueError):
+    """Return a valid TCP port, falling back to DEFAULT_PORT on bad input.
+
+    Accepts an int or a clean integer string. Rejects bools (a bool is an int
+    subclass, so ``True`` would otherwise sneak through as port 1) and floats.
+    """
+    if isinstance(value, bool):
         return DEFAULT_PORT
-    return port if 1 <= port <= 65535 else DEFAULT_PORT
+    if isinstance(value, str):
+        value = value.strip()
+        value = int(value) if value.isdigit() else None
+    if not isinstance(value, int):  # bool already handled above
+        return DEFAULT_PORT
+    return value if 1 <= value <= 65535 else DEFAULT_PORT
 
 
 def _coerce_dir(value):
     """Return a usable download dir, falling back to the default on bad input."""
-    return value if isinstance(value, str) and value.strip() else DEFAULT_DOWNLOAD_DIR
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return DEFAULT_DOWNLOAD_DIR
 
 
 # ---------------------------------------------------------------------------

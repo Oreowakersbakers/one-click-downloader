@@ -38,6 +38,8 @@ def _is_http_url(url):
     This keeps non-URL input — and crucially anything that looks like a yt-dlp
     option flag (e.g. ``--exec=...``) — from ever reaching the downloader.
     """
+    if not isinstance(url, str) or any(ord(c) < 0x20 for c in url):
+        return False  # reject non-strings and embedded control chars (CR/LF/TAB)
     try:
         parsed = urlparse(url)
     except ValueError:
