@@ -44,13 +44,14 @@ history, more sites) touches one file instead of all of them.
 
 ## Run it
 
-Double-click `oneclick.py`, or from a terminal:
+Double-click **`Start One-Click Downloader.vbs`** — this opens just the app
+window, with no black console window behind it. (Closing the app window quits
+everything, including the helper server.)
 
-```
-python oneclick.py
-```
+Alternatively, from a terminal: `python oneclick.py`.
 
-Files land in `Downloads/OneClickDL/`.
+Files land in `Downloads/OneClickDL/`. The window can be minimized while you
+browse — it just needs to stay running so the extension can reach it.
 
 ## The pairing token
 
