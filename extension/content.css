@@ -1,0 +1,63 @@
+/* The on-video download button. High z-index so it sits above player chrome. */
+.ocdl-btn {
+  position: fixed;
+  z-index: 2147483647;
+  width: 36px;
+  height: 36px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(17, 17, 17, 0.72);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  transition: background 0.15s ease, transform 0.1s ease;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ocdl-btn.ocdl-visible {
+  display: flex;
+}
+
+.ocdl-btn:hover {
+  background: #4f46e5;
+  transform: scale(1.06);
+}
+
+.ocdl-btn .ocdl-icon,
+.ocdl-btn .ocdl-spin {
+  pointer-events: none;
+}
+
+/* Default: show the arrow, hide the spinner. */
+.ocdl-btn .ocdl-spin {
+  display: none;
+}
+
+/* Loading: swap arrow for a spinning ring. */
+.ocdl-btn.ocdl-loading {
+  background: #4f46e5;
+}
+.ocdl-btn.ocdl-loading .ocdl-icon {
+  display: none;
+}
+.ocdl-btn.ocdl-loading .ocdl-spin {
+  display: block;
+  animation: ocdl-spin 0.8s linear infinite;
+}
+
+/* Done / error tint the button briefly. */
+.ocdl-btn.ocdl-done {
+  background: #16a34a;
+}
+.ocdl-btn.ocdl-error {
+  background: #dc2626;
+}
+
+@keyframes ocdl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
