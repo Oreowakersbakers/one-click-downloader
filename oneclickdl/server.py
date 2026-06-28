@@ -70,6 +70,13 @@ def make_server(manager, settings, log=lambda msg: None):
                 self._reply(404, {"ok": False, "error": "not found"})
                 return
 
+            # Defense in depth: with no token configured, refuse everything
+            # rather than let an empty header match an empty token. Not reachable
+            # today (config always generates one), but cheap insurance.
+            if not settings.token:
+                self._reply(403, {"ok": False, "error": "server has no token configured"})
+                return
+
             # Constant-time compare so the token can't be guessed by timing the
             # response. Encode to bytes first: compare_digest rejects non-ASCII
             # str input with a TypeError, and a header value is attacker-supplied.
