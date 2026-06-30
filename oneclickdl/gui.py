@@ -433,7 +433,9 @@ class Window:
 
     def cancel_download(self):
         if self._active_job_id is not None:
-            self.manager.cancel(self._active_job_id)
+            if self.manager.cancel(self._active_job_id):
+                self.cancel_btn.config(state="disabled")
+                self.set_status("Cancelling...")
 
     def open_folder(self):
         path = self.settings.download_dir
