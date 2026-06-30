@@ -16,7 +16,8 @@ import queue
 import itertools
 import threading
 import subprocess
-from dataclasses import dataclass
+import signal
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from . import config
@@ -61,6 +62,7 @@ class Job:
     title: str = ""
     percent: float = 0.0
     error: str = ""
+    output_paths: list = field(default_factory=list)
 
 
 class DownloadManager:
@@ -152,11 +154,34 @@ class DownloadManager:
         return True
 
     @staticmethod
+    def _popen_kwargs():
+        """Options that let cancel() stop yt-dlp and any children it starts."""
+        if config.IS_WINDOWS:
+            return {
+                "creationflags": (
+                    subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            }
+        return {"start_new_session": True}
+
+    @staticmethod
     def _terminate(proc):
         try:
-            proc.terminate()
+            if config.IS_WINDOWS:
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    check=False,
+                )
+            else:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
         except Exception:  # noqa: BLE001 - already gone / race on exit
-            pass
+            try:
+                proc.terminate()
+            except Exception:  # noqa: BLE001 - already gone / race on exit
+                pass
 
     # ---- worker loop ----
     def _run(self):
@@ -201,15 +226,12 @@ class DownloadManager:
             job.url,
         ]
         try:
-            # CREATE_NO_WINDOW hides the console flash on Windows. The constant
-            # only exists on Windows, so reference it only on that branch.
-            creationflags = subprocess.CREATE_NO_WINDOW if config.IS_WINDOWS else 0
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                creationflags=creationflags,
+                **self._popen_kwargs(),
             )
             # Register the process so cancel() can reach it. If a cancel landed
             # while we were spawning, honor it now.
@@ -224,6 +246,7 @@ class DownloadManager:
             proc.wait()
 
             if job.status == "cancelling":
+                self._cleanup_cancelled_outputs(job, download_dir)
                 job.status = "cancelled"
                 self._emit(EV_CANCELLED, job)
             elif proc.returncode == 0:
@@ -257,4 +280,53 @@ class DownloadManager:
                     pass
 
         if "Destination:" in line:
-            job.title = os.path.basename(line.split("Destination:", 1)[1].strip())
+            path = line.split("Destination:", 1)[1].strip()
+            job.title = os.path.basename(path)
+            self._remember_output_path(job, path)
+        elif "Merging formats into" in line:
+            path = line.split("Merging formats into", 1)[1].strip().strip('"')
+            job.title = os.path.basename(path)
+            self._remember_output_path(job, path)
+
+    def _remember_output_path(self, job, path):
+        if not path:
+            return
+        if not os.path.isabs(path):
+            path = os.path.join(self._settings.download_dir, path)
+        path = os.path.normpath(path)
+        if path not in job.output_paths:
+            job.output_paths.append(path)
+
+    def _cleanup_cancelled_outputs(self, job, download_dir):
+        download_dir = os.path.normcase(os.path.abspath(download_dir))
+        candidates = set()
+        for path in job.output_paths:
+            path = os.path.abspath(path)
+            candidates.update(
+                (
+                    path,
+                    path + ".part",
+                    path + ".ytdl",
+                    path + ".temp",
+                    path + ".tmp",
+                )
+            )
+            base = os.path.basename(path)
+            parent = os.path.dirname(path)
+            try:
+                for name in os.listdir(parent):
+                    if name.startswith(base + ".part-"):
+                        candidates.add(os.path.join(parent, name))
+            except OSError:
+                pass
+
+        for path in candidates:
+            abs_path = os.path.abspath(path)
+            parent = os.path.normcase(os.path.dirname(abs_path))
+            if parent != download_dir:
+                continue
+            try:
+                if os.path.isfile(abs_path):
+                    os.remove(abs_path)
+            except OSError:
+                pass
