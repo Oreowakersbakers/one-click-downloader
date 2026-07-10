@@ -135,6 +135,25 @@ class DownloadManager:
         self._queue.put(job)
         return job
 
+    def active_jobs(self):
+        """Snapshot of in-flight (queued/running) jobs, as plain dicts.
+
+        Used by the local server's /status endpoint so the browser extension
+        can show what's downloading and offer to cancel it.
+        """
+        with self._lock:
+            return [
+                {
+                    "id": job.id,
+                    "url": job.url,
+                    "format": job.fmt,
+                    "status": job.status,
+                    "title": job.title,
+                    "percent": job.percent,
+                }
+                for job in self._active.values()
+            ]
+
     def cancel(self, job_id):
         """Cancel a queued or running job. Returns True if it was cancellable.
 
