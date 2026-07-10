@@ -171,6 +171,24 @@ class Window:
         self.url_entry.bind("<FocusOut>", self._maybe_placeholder)
         self._set_placeholder()  # show the hint until the box is clicked
 
+        # Format picker: the site's native video file, or audio-only as mp3.
+        # Display labels map to the downloader's format ids in start_download.
+        self.fmt_var = tk.StringVar(value="Video")
+        fmt_menu = tk.OptionMenu(row, self.fmt_var, "Video", "MP3")
+        fmt_menu.config(
+            font=("Segoe UI", 9), bg=SURFACE, fg=INK, cursor="hand2",
+            activebackground=ACCENT_SOFT, activeforeground=INK,
+            relief="flat", bd=0, padx=10, pady=6,
+            highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT,
+            indicatoron=False,  # drop the ugly raised indicator; act like a button
+        )
+        fmt_menu["menu"].config(
+            font=("Segoe UI", 9), bg=SURFACE, fg=INK,
+            activebackground=ACCENT_SOFT, activeforeground=INK,
+            relief="flat", bd=0,
+        )
+        fmt_menu.pack(side="left", padx=(8, 0))
+
         self.dl_btn = self._primary_btn(row, "Download", self.start_download)
         self.dl_btn.pack(side="left", padx=(10, 0))
 
@@ -368,7 +386,12 @@ class Window:
         if not url:
             messagebox.showinfo("Add a link", "Paste a video link into the box first.")
             return
-        if not self.manager.submit(url):
+        fmt = (
+            downloader.FMT_MP3
+            if self.fmt_var.get() == "MP3"
+            else downloader.FMT_VIDEO
+        )
+        if not self.manager.submit(url, fmt):
             messagebox.showinfo(
                 "That isn't a link",
                 "It should be a web address starting with http:// or https://.",
@@ -412,7 +435,8 @@ class Window:
         if event == downloader.EV_QUEUED:
             # Already on the GUI thread here — append directly rather than
             # re-deferring through self.log (which schedules another after()).
-            self._append_log(f"↓ queued  {job.url}\n", "queued")
+            kind = "mp3" if job.fmt == downloader.FMT_MP3 else "video"
+            self._append_log(f"↓ queued ({kind})  {job.url}\n", "queued")
         elif event == downloader.EV_STARTED:
             self._active_job_id = job.id
             self._show_cancel(True)
