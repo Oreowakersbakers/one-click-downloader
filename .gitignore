@@ -6,6 +6,11 @@ __pycache__/
 venv/
 env/
 
+# PyInstaller build output (build-exe.bat)
+build/
+dist/
+*.spec
+
 # OS
 Thumbs.db
 .DS_Store

@@ -226,6 +226,10 @@ class Window:
 
     def _show_cancel(self, show):
         if show:
+            # Re-enable it: cancel_download disables the button while a cancel
+            # is in flight, and that state would otherwise stick to the next
+            # download (the bug that made Cancel look permanently dead).
+            self.cancel_btn.config(state="normal")
             # Re-pack ahead of the percentage so it lands rightmost again.
             self.cancel_btn.pack(side="right", before=self.pct_label)
         else:
