@@ -51,6 +51,14 @@ everything, including the helper server.)
 
 Alternatively, from a terminal: `python oneclick.py`.
 
+Pick **Video** (mp4/webm, the site's native file) or **MP3** from the dropdown
+next to the Download button before starting a download.
+
+> **Caveat:** MP3 downloads require `ffmpeg` to be installed and on PATH (see
+> Requirements above) — yt-dlp uses it to convert the audio. Without it, MP3
+> downloads will fail; Video downloads don't need it (though ffmpeg is still
+> recommended for best YouTube quality).
+
 Files land in `Downloads/OneClickDL/`. On Windows the app lives in the **system
 tray** (the icons by the clock): minimizing or closing the window tucks it down
 there instead of quitting. Double-click the tray icon to reopen the window, or
@@ -77,8 +85,10 @@ The extension adds a download button to the top-right of any video you hover.
    icon → "Pairing / settings"), paste the **pairing token** from the app
    window, and click **Test connection** — it should say connected.
 
-Now hover any video on YouTube/TikTok/X and click the download button. The file
-lands in `Downloads/OneClickDL/`. The toolbar icon also has a paste-a-link box.
+Now hover any video on YouTube/TikTok/X and hover the download button — it
+expands into **MP4 | MP3**. Click MP4 for the video file or MP3 for audio only
+(MP3 needs ffmpeg — see the caveat above). The file lands in
+`Downloads/OneClickDL/`. The toolbar icon also has a paste-a-link box.
 
 ### How URLs are picked
 
