@@ -67,6 +67,33 @@ async function sendDownload(url, format) {
   }
 }
 
+// Authenticated GET/POST to the helper, shared by status and cancel.
+async function helperRequest(path, body) {
+  const { port, token } = await getConfig();
+  if (!token) {
+    return { ok: false, error: "Not paired yet — set the token in extension options." };
+  }
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      method: body ? "POST" : "GET",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-OneClick-Token": token,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data.error || `Helper error (HTTP ${res.status}).` };
+    }
+    return data;
+  } catch (e) {
+    return { ok: false, error: "Helper app isn't running." };
+  }
+}
+
 // Route messages from the content script and the popup.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || !msg.type) return;
@@ -76,6 +103,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg.type === "ping") {
     pingHelper().then(sendResponse);
+    return true;
+  }
+  if (msg.type === "status") {
+    // Active downloads on the helper: {ok, jobs: [{id, title, percent, ...}]}
+    helperRequest("/status").then(sendResponse);
+    return true;
+  }
+  if (msg.type === "cancel") {
+    // msg.id cancels one job; omit it to cancel everything in flight.
+    helperRequest("/cancel", msg.id != null ? { id: msg.id } : {}).then(sendResponse);
     return true;
   }
 });

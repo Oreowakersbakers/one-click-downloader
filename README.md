@@ -6,14 +6,14 @@ that does the real work.
 
 ## How it's built
 
-Two cooperating parts (the browser extension lands in the next phase):
+Two cooperating parts:
 
 ```
 ┌──────────────────────────┐   sends URL    ┌───────────────────────────┐
 │  Browser extension       │ ─────────────► │  Local helper (this app)  │
 │  download button on the  │                │  Python + yt-dlp          │
-│  video — coming next      │ ◄───────────── │  runs the download        │
-└──────────────────────────┘    "done"      └───────────────────────────┘
+│  video + popup w/ cancel │ ◄───────────── │  runs the download        │
+└──────────────────────────┘  status/done   └───────────────────────────┘
 ```
 
 A desktop program can't draw a button inside a web page, and a browser
@@ -45,14 +45,26 @@ history, more sites) touches one file instead of all of them.
 
 ## Run it
 
-Double-click **`Start One-Click Downloader.vbs`** — this opens just the app
-window, with no black console window behind it. (Closing the app window quits
-everything, including the helper server.)
+The easiest way is the **standalone exe** — build it once, then Python isn't
+needed to run the app at all:
 
-Alternatively, from a terminal: `python oneclick.py`.
+1. Double-click **`build-exe.bat`** (this one-time step needs Python installed).
+2. When it finishes, grab **`dist\One-Click Downloader.exe`** and move it
+   anywhere — Desktop, a tools folder, wherever. Double-click it to run.
+
+The exe is fully self-contained (Python and the app are packed inside); yt-dlp
+still downloads itself automatically on first run, same as running from source.
+
+Running from source works too:
+
+- Double-click **`Start One-Click Downloader.vbs`** — this opens just the app
+  window, with no black console window behind it.
+- Or from a terminal: `python oneclick.py`.
 
 Pick **Video** (mp4/webm, the site's native file) or **MP3** from the dropdown
-next to the Download button before starting a download.
+next to the Download button before starting a download. While a download runs,
+a **Cancel** link appears next to the percentage — it stops yt-dlp and cleans
+up the half-finished file.
 
 > **Caveat:** MP3 downloads require `ffmpeg` to be installed and on PATH (see
 > Requirements above) — yt-dlp uses it to convert the audio. Without it, MP3
@@ -77,7 +89,8 @@ reach it either.
 
 The extension adds a download button to the top-right of any video you hover.
 
-1. Start the helper app (`python oneclick.py`) and leave its window open.
+1. Start the helper app (the exe, the `.vbs`, or `python oneclick.py`) and
+   leave it running (the tray icon is enough).
 2. In Chrome/Edge/Brave, go to `chrome://extensions`.
 3. Turn on **Developer mode** (top-right).
 4. Click **Load unpacked** and select the `extension/` folder.
@@ -88,7 +101,12 @@ The extension adds a download button to the top-right of any video you hover.
 Now hover any video on YouTube/TikTok/X and hover the download button — it
 expands into **MP4 | MP3**. Click MP4 for the video file or MP3 for audio only
 (MP3 needs ffmpeg — see the caveat above). The file lands in
-`Downloads/OneClickDL/`. The toolbar icon also has a paste-a-link box.
+`Downloads/OneClickDL/`.
+
+Click the extension's **toolbar icon** for the popup: it has a paste-a-link
+box, and while anything is downloading it shows a live **Downloading** list
+with a progress bar and a **Cancel** button per download — so you can stop a
+download without switching to the app window.
 
 ### How URLs are picked
 
@@ -102,4 +120,6 @@ card. Sites it doesn't have a special rule for fall back to the page URL.
 - [x] Local helper server + manual desktop fallback
 - [x] Browser extension with the on-video download button
 - [x] Minimize/close to the Windows system tray
+- [x] Standalone Windows exe (`build-exe.bat`)
+- [x] Cancel a download from the app window or the extension popup
 - [ ] Polish: auto-start on login, per-download history, more site rules

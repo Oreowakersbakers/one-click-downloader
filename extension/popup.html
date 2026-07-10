@@ -72,6 +72,72 @@
         font-size: 12px;
         min-height: 16px;
       }
+      #downloads {
+        margin-top: 12px;
+        display: none; /* shown by popup.js when something is downloading */
+      }
+      #downloads h2 {
+        font-size: 12px;
+        margin: 0 0 6px;
+        color: #6b7280;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      .job {
+        padding: 8px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        margin-bottom: 6px;
+      }
+      .job-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .job-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      .job-cancel {
+        width: auto;
+        margin: 0;
+        padding: 3px 9px;
+        background: #fff;
+        color: #dc2626;
+        border: 1px solid #fca5a5;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      .job-cancel:hover {
+        background: #fef2f2;
+      }
+      .job-cancel:disabled {
+        color: #9ca3af;
+        border-color: #e5e7eb;
+        cursor: default;
+        background: #fff;
+      }
+      .bar {
+        margin-top: 6px;
+        height: 4px;
+        border-radius: 2px;
+        background: #eef2ff;
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        background: #4f46e5;
+        width: 0;
+        transition: width 0.4s ease;
+      }
     </style>
   </head>
   <body>
@@ -85,6 +151,11 @@
     <input id="url" type="text" placeholder="https://…" />
     <button id="go">Download</button>
     <div id="msg"></div>
+
+    <div id="downloads">
+      <h2>Downloading</h2>
+      <div id="jobs"></div>
+    </div>
 
     <a id="openOptions">Pairing / settings</a>
 
