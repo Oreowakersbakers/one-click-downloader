@@ -1,4 +1,6 @@
-/* The on-video download button. High z-index so it sits above player chrome. */
+/* The on-video download button. High z-index so it sits above player chrome.
+   Idle it's a 36px circle showing a download arrow; hovering it expands it
+   leftwards into a two-segment pill — MP4 | MP3 — and you click a segment. */
 .ocdl-btn {
   position: fixed;
   z-index: 2147483647;
@@ -7,13 +9,14 @@
   display: none;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  overflow: hidden;
+  border-radius: 18px;
   background: rgba(17, 17, 17, 0.72);
   color: #fff;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(2px);
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition: background 0.15s ease, width 0.15s ease;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -21,14 +24,50 @@
   display: flex;
 }
 
-.ocdl-btn:hover {
-  background: #4f46e5;
-  transform: scale(1.06);
+/* Hover (while idle): widen into the format pill and swap the arrow for the
+   two labelled segments. Busy/result states keep the compact circle. */
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover {
+  width: 96px;
+  background: rgba(17, 17, 17, 0.88);
+}
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover .ocdl-icon {
+  display: none;
+}
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover .ocdl-choices {
+  display: flex;
 }
 
 .ocdl-btn .ocdl-icon,
 .ocdl-btn .ocdl-spin {
   pointer-events: none;
+}
+
+/* The two format segments inside the expanded pill. */
+.ocdl-choices {
+  display: none;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 3px;
+  box-sizing: border-box;
+}
+
+.ocdl-choice {
+  flex: 1;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  font: 600 10.5px/1 system-ui, "Segoe UI", sans-serif;
+  letter-spacing: 0.02em;
+  border-radius: 15px;
+  cursor: pointer;
+}
+
+.ocdl-choice:hover {
+  background: #4f46e5;
 }
 
 /* Default: show the arrow, hide the spinner. */
