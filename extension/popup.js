@@ -86,8 +86,23 @@ function renderJobs(jobs) {
         cancelling.add(job.id);
         cancel.textContent = "Cancelling…";
         cancel.disabled = true;
-        await chrome.runtime.sendMessage({ type: "cancel", id: job.id });
-        refreshJobs();
+        try {
+          const res = await chrome.runtime.sendMessage({ type: "cancel", id: job.id });
+          if (
+            !res ||
+            !res.ok ||
+            !Array.isArray(res.cancelled) ||
+            !res.cancelled.includes(job.id)
+          ) {
+            // The job may still be running after a transient failure. Let the
+            // next poll render an enabled button so the user can retry.
+            cancelling.delete(job.id);
+          }
+        } catch {
+          cancelling.delete(job.id);
+        } finally {
+          refreshJobs();
+        }
       });
     }
 
