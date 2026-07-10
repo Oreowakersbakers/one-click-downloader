@@ -85,8 +85,10 @@ The extension adds a download button to the top-right of any video you hover.
    icon → "Pairing / settings"), paste the **pairing token** from the app
    window, and click **Test connection** — it should say connected.
 
-Now hover any video on YouTube/TikTok/X and click the download button. The file
-lands in `Downloads/OneClickDL/`. The toolbar icon also has a paste-a-link box.
+Now hover any video on YouTube/TikTok/X and hover the download button — it
+expands into **MP4 | MP3**. Click MP4 for the video file or MP3 for audio only
+(MP3 needs ffmpeg — see the caveat above). The file lands in
+`Downloads/OneClickDL/`. The toolbar icon also has a paste-a-link box.
 
 ### How URLs are picked
 
