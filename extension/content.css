@@ -26,14 +26,17 @@
 
 /* Hover (while idle): widen into the format pill and swap the arrow for the
    two labelled segments. Busy/result states keep the compact circle. */
-.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover {
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover,
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):focus-within {
   width: 96px;
   background: rgba(17, 17, 17, 0.88);
 }
-.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover .ocdl-icon {
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover .ocdl-icon,
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):focus-within .ocdl-icon {
   display: none;
 }
-.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover .ocdl-choices {
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):hover .ocdl-choices,
+.ocdl-btn:not(.ocdl-loading):not(.ocdl-done):not(.ocdl-error):focus-within .ocdl-choices {
   display: flex;
 }
 
@@ -68,6 +71,12 @@
 
 .ocdl-choice:hover {
   background: #4f46e5;
+}
+
+.ocdl-choice:focus-visible {
+  background: #4f46e5;
+  outline: 2px solid #fff;
+  outline-offset: -2px;
 }
 
 /* Default: show the arrow, hide the spinner. */
