@@ -9,11 +9,15 @@ It does two jobs:
 
 Look & feel
 -----------
-The palette is built around the app's own icon colour — indigo ``#4F46E5`` — so
-the window reads as one product with the tray/browser marks. To keep the
-project's "nothing to install" promise (see tray.py), everything here is pure
-stdlib tkinter: the header gradient and the download glyph are *drawn* on a
-Canvas rather than loaded from an image, so there's no Pillow dependency.
+Deliberately compact: the window is a strip, not a dashboard. One row to paste
+a link, one status line with a progress bar, and a single footer line that
+holds everything else (open folder, activity toggle, extension status, copy
+token). The activity log is collapsed by default and only claims height when
+you expand it — or when a download fails, since the error details live there.
+
+The palette is built around the app's own icon colour — indigo ``#4F46E5``.
+To keep the project's "nothing to install" promise (see tray.py), everything
+here is pure stdlib tkinter.
 
 The clipboard-watching from the old version is intentionally gone; the browser
 button (and this manual box) replace it.
@@ -33,7 +37,7 @@ ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "oneclick.ico")
 # Design tokens — one source of truth for colour, derived from the app icon.
 # ---------------------------------------------------------------------------
 BG = "#F4F5FB"          # window background — a soft indigo-tinted white
-SURFACE = "#FFFFFF"     # raised cards
+SURFACE = "#FFFFFF"     # input fields
 INK = "#1E1B33"         # primary text — a deep, near-black indigo
 MUTED = "#6E6A86"       # secondary text
 FAINT = "#9A96B0"       # tertiary text / placeholder / idle dot
@@ -47,21 +51,7 @@ OK = "#0E9F6E"          # success
 ERR = "#E02424"         # failure
 AMBER = "#C2710C"       # cancelled / warming up
 
-HEADER_TOP = "#5B53F0"  # header gradient — lighter at the top...
-HEADER_BOT = "#3F37C9"  # ...deeper at the bottom (a downward "descent")
-
-PAD = 18                # outer content padding
-
-
-def _mix(a, b, t):
-    """Linear-interpolate two ``#rrggbb`` colours; ``t`` in [0, 1]."""
-    ar, ag, ab = int(a[1:3], 16), int(a[3:5], 16), int(a[5:7], 16)
-    br, bg, bb = int(b[1:3], 16), int(b[3:5], 16), int(b[5:7], 16)
-    return "#%02x%02x%02x" % (
-        round(ar + (br - ar) * t),
-        round(ag + (bg - ag) * t),
-        round(ab + (bb - ab) * t),
-    )
+PAD = 14                # outer content padding
 
 
 class Window:
@@ -74,12 +64,10 @@ class Window:
         self._active_job_id = None
         # True while the URL box shows greyed placeholder text (not real input).
         self._placeholder_on = False
+        # True while the activity log is expanded.
+        self._activity_shown = False
 
         root.title("One-Click Downloader")
-        # Sized to show every panel (incl. the pairing token) without clipping;
-        # the activity log takes any extra height when the window is enlarged.
-        root.geometry("620x710")
-        root.minsize(560, 670)
         root.configure(bg=BG)
         # Replace tkinter's default feather with the app's own icon.
         try:
@@ -88,18 +76,24 @@ class Window:
             pass
 
         self._setup_styles()
-        self._build_header(root)
 
         body = tk.Frame(root, bg=BG)
         body.pack(fill="both", expand=True, padx=PAD, pady=PAD)
 
         self._build_url_row(body)
-        self._build_status_card(body)
-        self._build_activity(body)
-        self._build_extension_card(body)
+        self._build_status(body)
+        self._build_footer(body)
+        self._build_activity(body)  # created unpacked; the footer toggle shows it
 
         # Listen for download events (called from the worker thread).
         manager.add_listener(self._on_event)
+
+        # Size the window to exactly fit the collapsed layout, and remember
+        # that height so the activity toggle can grow/shrink around it.
+        root.update_idletasks()
+        self._collapsed_h = root.winfo_reqheight()
+        root.geometry(f"560x{self._collapsed_h}")
+        root.minsize(500, self._collapsed_h)
 
     # ---- one-time theming -------------------------------------------------
     def _setup_styles(self):
@@ -124,24 +118,11 @@ class Window:
                 background=colour,
                 lightcolor=colour,
                 darkcolor=colour,
-                thickness=8,
+                thickness=6,
                 borderwidth=0,
             )
 
     # ---- widget factories -------------------------------------------------
-    def _eyebrow(self, parent, text, bg=BG):
-        """A small, muted section label."""
-        return tk.Label(
-            parent, text=text, bg=bg, fg=MUTED, font=("Segoe UI Semibold", 8)
-        )
-
-    def _card(self, parent):
-        """A white panel with a hairline border."""
-        return tk.Frame(
-            parent, bg=SURFACE, bd=0,
-            highlightthickness=1, highlightbackground=LINE, highlightcolor=LINE,
-        )
-
     def _primary_btn(self, parent, text, command):
         return tk.Button(
             parent, text=text, command=command, cursor="hand2",
@@ -149,22 +130,21 @@ class Window:
             bg=ACCENT, fg="#FFFFFF",
             activebackground=ACCENT_D, activeforeground="#FFFFFF",
             disabledforeground="#D8D6F2",
-            relief="flat", bd=0, padx=18, pady=8,
+            relief="flat", bd=0, padx=16, pady=6,
             highlightthickness=2, highlightbackground=ACCENT, highlightcolor="#BBB6F2",
         )
 
-    def _ghost_btn(self, parent, text, command):
-        # A quiet, recognisable button: a faint fill (so it reads as clickable
-        # against the white cards) with a hairline border — subordinate to the
-        # filled primary Download button.
+    def _link_btn(self, parent, text, command, fg=MUTED):
+        # A quiet text-only button for the footer: no fill, no border, just an
+        # accent hover — everything down there is secondary to Download.
         return tk.Button(
             parent, text=text, command=command, cursor="hand2",
-            font=("Segoe UI", 10),
-            bg=BG, fg=INK,
-            activebackground=ACCENT_SOFT, activeforeground=ACCENT_D,
+            font=("Segoe UI", 9),
+            bg=BG, fg=fg,
+            activebackground=BG, activeforeground=ACCENT_D,
             disabledforeground=FAINT,
-            relief="flat", bd=0, padx=14, pady=7,
-            highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT,
+            relief="flat", bd=0, padx=4, pady=1,
+            highlightthickness=0,
         )
 
     def _entry(self, parent, **kw):
@@ -178,49 +158,8 @@ class Window:
         opts.update(kw)
         return tk.Entry(parent, **opts)
 
-    # ---- header (gradient + drawn brand mark) -----------------------------
-    def _build_header(self, parent):
-        self.header = tk.Canvas(parent, height=78, highlightthickness=0, bd=0)
-        self.header.pack(fill="x")
-        # Redraw on resize so the gradient always spans the full width.
-        self.header.bind(
-            "<Configure>", lambda e: self._draw_header(e.width, e.height)
-        )
-
-    def _draw_header(self, w, h):
-        c = self.header
-        c.delete("all")
-        if w <= 1:
-            return
-        # Vertical gradient: one 1px line per row.
-        for y in range(h):
-            c.create_line(0, y, w, y, fill=_mix(HEADER_TOP, HEADER_BOT, y / (h - 1)))
-
-        # The brand mark: a download arrow landing in a tray (matches the icon),
-        # drawn in white directly on the gradient.
-        cx, cy = 42, h // 2
-        c.create_line(cx, cy - 16, cx, cy + 1, fill="#FFFFFF", width=4, capstyle="round")
-        c.create_polygon(
-            cx - 10, cy - 5, cx + 10, cy - 5, cx, cy + 8, fill="#FFFFFF", outline="#FFFFFF"
-        )
-        c.create_line(cx - 13, cy + 15, cx + 13, cy + 15, fill="#FFFFFF", width=4, capstyle="round")
-
-        # Lockup: product name + a plain-language tagline.
-        tx = cx + 36
-        c.create_text(
-            tx, cy - 9, text="One-Click Downloader", anchor="w",
-            fill="#FFFFFF", font=("Segoe UI Semibold", 15),
-        )
-        c.create_text(
-            tx, cy + 13,
-            text="Paste a link, or grab video straight from your browser",
-            anchor="w", fill="#D9D7F7", font=("Segoe UI", 9),
-        )
-
     # ---- URL row (the one-click action) -----------------------------------
     def _build_url_row(self, parent):
-        self._eyebrow(parent, "VIDEO URL").pack(anchor="w", pady=(0, 6))
-
         row = tk.Frame(parent, bg=BG)
         row.pack(fill="x")
 
@@ -235,55 +174,84 @@ class Window:
         self.dl_btn = self._primary_btn(row, "Download", self.start_download)
         self.dl_btn.pack(side="left", padx=(10, 0))
 
-    # ---- status card (the signature: a download "heartbeat") --------------
-    def _build_status_card(self, parent):
-        card = self._card(parent)
-        card.pack(fill="x", pady=(16, 0))
-        inner = tk.Frame(card, bg=SURFACE)
-        inner.pack(fill="x", padx=14, pady=12)
+    # ---- status line (the download "heartbeat") ---------------------------
+    def _build_status(self, parent):
+        srow = tk.Frame(parent, bg=BG)
+        srow.pack(fill="x", pady=(12, 0))
 
-        top = tk.Frame(inner, bg=SURFACE)
-        top.pack(fill="x")
         self.state_dot = tk.Label(
-            top, text="●", bg=SURFACE, fg=FAINT, font=("Segoe UI", 11)
+            srow, text="●", bg=BG, fg=FAINT, font=("Segoe UI", 10)
         )
         self.state_dot.pack(side="left")
         self.status = tk.StringVar(value="Getting things ready…")
         tk.Label(
-            top, textvariable=self.status, bg=SURFACE, fg=INK,
-            font=("Segoe UI Semibold", 11), anchor="w",
-        ).pack(side="left", padx=(8, 0))
-        self.pct_var = tk.StringVar(value="")
-        tk.Label(
-            top, textvariable=self.pct_var, bg=SURFACE, fg=MUTED,
-            font=("Segoe UI Semibold", 11),
-        ).pack(side="right")
+            srow, textvariable=self.status, bg=BG, fg=INK,
+            font=("Segoe UI Semibold", 10), anchor="w",
+        ).pack(side="left", padx=(6, 0))
+
+        # Rightmost: Cancel (only visible while a download runs), then the
+        # percentage. Cancelling the running job frees the serial queue so
+        # later jobs can proceed.
+        self.cancel_btn = self._link_btn(srow, "Cancel", self.cancel_download, fg=ERR)
+        self.cancel_btn.pack(side="right")
+        self.pct_label = tk.Label(
+            srow, text="", bg=BG, fg=MUTED, font=("Segoe UI Semibold", 10)
+        )
+        self.pct_label.pack(side="right", padx=(0, 6))
+        self.cancel_btn.pack_forget()  # hidden until EV_STARTED
 
         self.progress = ttk.Progressbar(
-            inner, mode="determinate", maximum=100,
+            parent, mode="determinate", maximum=100,
             style="Accent.Horizontal.TProgressbar",
         )
-        self.progress.pack(fill="x", pady=(11, 12))
+        self.progress.pack(fill="x", pady=(8, 0))
 
-        actions = tk.Frame(inner, bg=SURFACE)
-        actions.pack(fill="x")
-        # Enabled only while a download is running (see _apply_event). Cancelling
-        # the running job frees the serial queue so later jobs can proceed.
-        self.cancel_btn = self._ghost_btn(actions, "Cancel", self.cancel_download)
-        self.cancel_btn.config(state="disabled")
-        self.cancel_btn.pack(side="left")
-        self._ghost_btn(actions, "Open folder", self.open_folder).pack(side="right")
+    def _show_cancel(self, show):
+        if show:
+            # Re-pack ahead of the percentage so it lands rightmost again.
+            self.cancel_btn.pack(side="right", before=self.pct_label)
+        else:
+            self.cancel_btn.pack_forget()
 
-    # ---- activity log (calm, colour-coded) --------------------------------
+    # ---- footer (everything secondary, on one line) ------------------------
+    def _build_footer(self, parent):
+        self.footer = tk.Frame(parent, bg=BG)
+        self.footer.pack(fill="x", pady=(10, 0))
+
+        self._link_btn(self.footer, "Open folder", self.open_folder).pack(side="left")
+        self.activity_btn = self._link_btn(
+            self.footer, "Activity ▸", self.toggle_activity
+        )
+        self.activity_btn.pack(side="left", padx=(8, 0))
+
+        # Right side: extension pairing, reduced to a status dot + copy button.
+        self.copy_btn = self._link_btn(
+            self.footer, "Copy token", self._copy_token, fg=ACCENT
+        )
+        self.copy_btn.pack(side="right")
+
+        self.conn_var = tk.StringVar(value="Helper starting…")
+        tk.Label(
+            self.footer, textvariable=self.conn_var, bg=BG, fg=MUTED,
+            font=("Segoe UI", 9), anchor="e",
+        ).pack(side="right", padx=(0, 8))
+        self.server_dot = tk.Label(
+            self.footer, text="●", bg=BG, fg=AMBER, font=("Segoe UI", 9)
+        )
+        self.server_dot.pack(side="right", padx=(0, 4))
+        # Keep the status dot in sync no matter who sets the text (the launcher
+        # sets a failure message directly on conn_var).
+        self.conn_var.trace_add("write", self._sync_server_dot)
+
+    # ---- activity log (collapsed by default) -------------------------------
     def _build_activity(self, parent):
-        self._eyebrow(parent, "ACTIVITY").pack(anchor="w", pady=(16, 6))
         self.log_box = tk.Text(
-            parent, height=7, wrap="word", state="disabled",
+            parent, height=8, wrap="word", state="disabled",
             bg="#FBFBFE", fg=MUTED, font=("Cascadia Mono", 9),
             relief="flat", bd=0, padx=12, pady=10, insertbackground=INK,
             highlightthickness=1, highlightbackground=LINE, highlightcolor=LINE,
         )
-        self.log_box.pack(fill="both", expand=True)
+        # Not packed here — toggle_activity slots it in above the footer.
         # Each event type gets its own colour so the log scans at a glance.
         self.log_box.tag_configure("queued", foreground=ACCENT)
         self.log_box.tag_configure("ok", foreground=OK)
@@ -291,45 +259,24 @@ class Window:
         self.log_box.tag_configure("warn", foreground=AMBER)
         self.log_box.tag_configure("ink", foreground=INK)
 
-    # ---- browser-extension panel ------------------------------------------
-    def _build_extension_card(self, parent):
-        card = self._card(parent)
-        card.pack(fill="x", pady=(16, 0))
-        inner = tk.Frame(card, bg=SURFACE)
-        inner.pack(fill="x", padx=14, pady=12)
-
-        self._eyebrow(inner, "BROWSER EXTENSION", bg=SURFACE).pack(anchor="w")
-
-        srow = tk.Frame(inner, bg=SURFACE)
-        srow.pack(fill="x", pady=(8, 0))
-        self.server_dot = tk.Label(
-            srow, text="●", bg=SURFACE, fg=AMBER, font=("Segoe UI", 10)
-        )
-        self.server_dot.pack(side="left")
-        self.conn_var = tk.StringVar(value="Helper server: starting…")
-        tk.Label(
-            srow, textvariable=self.conn_var, bg=SURFACE, fg=MUTED,
-            font=("Segoe UI", 9), anchor="w",
-        ).pack(side="left", padx=(8, 0))
-        # Keep the status dot in sync no matter who sets the text (the launcher
-        # sets a failure message directly on conn_var).
-        self.conn_var.trace_add("write", self._sync_server_dot)
-
-        tk.Label(
-            inner, text="Pairing token", bg=SURFACE, fg=INK,
-            font=("Segoe UI Semibold", 9),
-        ).pack(anchor="w", pady=(12, 4))
-
-        trow = tk.Frame(inner, bg=SURFACE)
-        trow.pack(fill="x")
-        self.token_var = tk.StringVar(value=self.settings.token)
-        token_entry = self._entry(
-            trow, textvariable=self.token_var, state="readonly",
-            readonlybackground=BG, font=("Cascadia Mono", 9),
-        )
-        token_entry.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 10))
-        self.copy_btn = self._ghost_btn(trow, "Copy", self._copy_token)
-        self.copy_btn.pack(side="left")
+    def toggle_activity(self):
+        if self._activity_shown:
+            self.log_box.pack_forget()
+            self._activity_shown = False
+            self.activity_btn.config(text="Activity ▸")
+        else:
+            # Slot the log between the progress bar and the footer, and let it
+            # soak up any extra height if the user enlarges the window.
+            self.log_box.pack(
+                fill="both", expand=True, pady=(10, 0), before=self.footer
+            )
+            self._activity_shown = True
+            self.activity_btn.config(text="Activity ▾")
+            self.log_box.see("end")
+        # Grow/shrink the window to fit, keeping whatever width the user chose.
+        self.root.update_idletasks()
+        w = max(self.root.winfo_width(), 500)
+        self.root.geometry(f"{w}x{self.root.winfo_reqheight()}")
 
     # ---- placeholder handling for the URL box -----------------------------
     def _set_placeholder(self):
@@ -403,9 +350,7 @@ class Window:
     def set_server_running(self, port):
         self.root.after(
             0,
-            lambda: self.conn_var.set(
-                f"Helper server running · http://127.0.0.1:{port}"
-            ),
+            lambda: self.conn_var.set(f"Helper running · 127.0.0.1:{port}"),
         )
 
     def _sync_server_dot(self, *_):
@@ -449,11 +394,11 @@ class Window:
 
     def _copy_token(self):
         self.root.clipboard_clear()
-        self.root.clipboard_append(self.token_var.get())
-        self.copy_btn.config(text="Copied!")
+        self.root.clipboard_append(self.settings.token)
+        self.copy_btn.config(text="Copied ✓")
         self.set_status("Token copied — paste it into the extension's options.")
         # Revert the button label after a moment.
-        self.root.after(1400, lambda: self.copy_btn.config(text="Copy"))
+        self.root.after(1400, lambda: self.copy_btn.config(text="Copy token"))
 
     # ---- download events --------------------------------------------------
     def _on_event(self, event, job, data=None):
@@ -470,15 +415,15 @@ class Window:
             self._append_log(f"↓ queued  {job.url}\n", "queued")
         elif event == downloader.EV_STARTED:
             self._active_job_id = job.id
-            self.cancel_btn.config(state="normal")
+            self._show_cancel(True)
             self._set_bar("Accent", 0)
             self.state_dot.config(fg=ACCENT)
-            self.pct_var.set("0%")
+            self.pct_label.config(text="0%")
             self._set_status("Downloading…")
         elif event == downloader.EV_PROGRESS:
             pct = data or 0
             self.progress["value"] = pct
-            self.pct_var.set(f"{pct:.0f}%")
+            self.pct_label.config(text=f"{pct:.0f}%")
             self._set_status("Downloading…")
         elif event == downloader.EV_LOG:
             self._append_log(data + "\n")
@@ -486,21 +431,24 @@ class Window:
             self._clear_active(job)
             self._set_bar("OK", 100)
             self.state_dot.config(fg=OK)
-            self.pct_var.set("100%")
+            self.pct_label.config(text="100%")
             self._set_status("Done — saved to your downloads folder.")
             self._append_log("✓ finished\n", "ok")
         elif event == downloader.EV_FAILED:
             self._clear_active(job)
             self._set_bar("Err", 0)
             self.state_dot.config(fg=ERR)
-            self.pct_var.set("")
+            self.pct_label.config(text="")
             self._set_status("Couldn't finish — see the activity log.")
             self._append_log(f"✗ {job.error}\n", "err")
+            # The status points at the log, so make sure the log is visible.
+            if not self._activity_shown:
+                self.toggle_activity()
         elif event == downloader.EV_CANCELLED:
             self._clear_active(job)
             self._set_bar("Accent", 0)
             self.state_dot.config(fg=AMBER)
-            self.pct_var.set("")
+            self.pct_label.config(text="")
             self._set_status("Cancelled.")
             self._append_log("■ cancelled\n", "warn")
 
@@ -508,4 +456,4 @@ class Window:
         """Drop Cancel-button state once the active job reaches a terminal state."""
         if job.id == self._active_job_id:
             self._active_job_id = None
-            self.cancel_btn.config(state="disabled")
+            self._show_cancel(False)
