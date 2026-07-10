@@ -27,10 +27,19 @@ document.getElementById("test").addEventListener("click", async () => {
   await chrome.storage.sync.set({ token, port });
 
   setStatus("Testing…");
-  const res = await chrome.runtime.sendMessage({ type: "ping" });
-  if (res && res.ok) {
-    setStatus("Connected — the helper app is running. ✓", "ok");
-  } else {
+  try {
+    // /status is authenticated, unlike /ping, so this verifies both that the
+    // helper is reachable and that the pasted pairing token is correct.
+    const res = await chrome.runtime.sendMessage({ type: "status" });
+    if (res && res.ok) {
+      setStatus("Connected and paired. ✓", "ok");
+    } else {
+      setStatus(
+        (res && res.error) || "No response. Check that the helper is open and the token is correct.",
+        "err",
+      );
+    }
+  } catch (err) {
     setStatus("No response. Is the One-Click Downloader app open?", "err");
   }
 });

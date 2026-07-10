@@ -121,7 +121,9 @@ class DownloadManager:
         Returns the Job, or None if the URL is blank or not a valid http(s)
         link (rejecting the latter is what stops option-injection into yt-dlp).
         """
-        url = (url or "").strip()
+        if not isinstance(url, str):
+            return None
+        url = url.strip()
         if not url or not _is_http_url(url):
             return None
         if fmt not in FORMATS:
@@ -227,7 +229,20 @@ class DownloadManager:
                     if not skip:
                         job.status = "running"
                 if not skip:
-                    self._process(job)
+                    try:
+                        self._process(job)
+                    except Exception as e:  # noqa: BLE001 - keep the worker alive
+                        # _process handles expected subprocess failures itself.
+                        # This boundary covers setup errors such as an invalid
+                        # download directory so one bad job cannot permanently
+                        # kill the application's only worker thread.
+                        if job.status == "cancelling":
+                            job.status = "cancelled"
+                            self._emit(EV_CANCELLED, job)
+                        else:
+                            job.status = "failed"
+                            job.error = str(e)
+                            self._emit(EV_FAILED, job)
             finally:
                 with self._lock:
                     self._active.pop(job.id, None)

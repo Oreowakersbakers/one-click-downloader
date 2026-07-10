@@ -12,8 +12,9 @@
   // ---- the button ----
   const btn = document.createElement("div");
   btn.className = "ocdl-btn";
-  btn.setAttribute("role", "button");
+  btn.setAttribute("role", "group");
   btn.setAttribute("aria-label", "Download this video");
+  btn.tabIndex = 0;
   btn.title = "Download this video";
   btn.innerHTML = `
     <svg class="ocdl-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -23,13 +24,16 @@
     <svg class="ocdl-spin" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
       <path fill="currentColor" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2Z"/>
     </svg>
-    <span class="ocdl-choices" aria-hidden="true">
+    <span class="ocdl-choices">
       <button class="ocdl-choice" data-fmt="video" title="Download video (mp4/webm)">MP4</button>
       <button class="ocdl-choice" data-fmt="mp3" title="Download audio only (mp3)">MP3</button>
     </span>`;
   // Don't let the host page's hover/click handlers interfere.
   btn.addEventListener("mousedown", (e) => e.stopPropagation(), true);
   btn.addEventListener("click", onClick, true);
+  btn.addEventListener("focusout", (e) => {
+    if (!btn.contains(e.relatedTarget)) hide();
+  });
 
   function ensureAttached() {
     if (!btn.isConnected) document.body.appendChild(btn);
@@ -82,6 +86,15 @@
     else hide();
   }
   document.addEventListener("mouseover", onPointer, true);
+
+  // Keyboard users can reveal the same controls by focusing a video. The
+  // focusable group then expands via :focus-within so its real buttons enter
+  // the tab order and remain exposed to assistive technology.
+  document.addEventListener("focusin", (e) => {
+    const target = e.target;
+    const video = target && target.tagName === "VIDEO" ? target : null;
+    if (video && bigEnough(video)) show(video);
+  }, true);
 
   // Keep the button glued to the video as the page scrolls.
   let raf = 0;
@@ -142,6 +155,10 @@
   }
 
   async function onClick(e) {
+    // The page and the content script share the DOM. Reject synthetic clicks
+    // from page JavaScript so only a real user action can use the extension's
+    // private pairing token to enqueue a download.
+    if (!e.isTrusted) return;
     e.preventDefault();
     e.stopPropagation();
     if (busy) return;
