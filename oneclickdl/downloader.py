@@ -36,6 +36,12 @@ _TERMINAL = ("done", "failed", "cancelled")
 
 _PERCENT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)%")
 
+# The two ways a job can come out: the site's native video file (mp4/webm),
+# or audio-only converted to mp3. Anything else is coerced to FMT_VIDEO.
+FMT_VIDEO = "video"
+FMT_MP3 = "mp3"
+FORMATS = (FMT_VIDEO, FMT_MP3)
+
 
 def _is_http_url(url):
     """True only for real http(s) URLs.
@@ -58,6 +64,7 @@ class Job:
     # (cancelling is a brief internal state while the process is being killed)
     id: int
     url: str
+    fmt: str = FMT_VIDEO
     status: str = "queued"
     title: str = ""
     percent: float = 0.0
@@ -105,8 +112,11 @@ class DownloadManager:
                 pass
 
     # ---- submitting work ----
-    def submit(self, url):
+    def submit(self, url, fmt=FMT_VIDEO):
         """Queue a URL for download.
+
+        `fmt` is one of FORMATS; anything unrecognised falls back to video so
+        callers (like the HTTP server) can pass user input straight through.
 
         Returns the Job, or None if the URL is blank or not a valid http(s)
         link (rejecting the latter is what stops option-injection into yt-dlp).
@@ -114,10 +124,12 @@ class DownloadManager:
         url = (url or "").strip()
         if not url or not _is_http_url(url):
             return None
+        if fmt not in FORMATS:
+            fmt = FMT_VIDEO
         # Guard id allocation + registration: submit() is called from multiple
         # HTTP worker threads as well as the GUI thread.
         with self._lock:
-            job = Job(id=next(self._ids), url=url)
+            job = Job(id=next(self._ids), url=url, fmt=fmt)
             self._active[job.id] = job
         self._emit(EV_QUEUED, job)
         self._queue.put(job)
@@ -222,6 +234,12 @@ class DownloadManager:
             "--newline",
             "-P", download_dir,
             "-o", "%(title).80s [%(id)s].%(ext)s",
+        ]
+        if job.fmt == FMT_MP3:
+            # Grab the best audio-only stream and convert it to mp3 (the
+            # conversion step needs ffmpeg, which yt-dlp finds on PATH).
+            cmd += ["-f", "bestaudio/best", "-x", "--audio-format", "mp3"]
+        cmd += [
             "--",  # everything after this is positional — never an option flag
             job.url,
         ]

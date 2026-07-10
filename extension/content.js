@@ -22,7 +22,11 @@
     </svg>
     <svg class="ocdl-spin" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
       <path fill="currentColor" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2Z"/>
-    </svg>`;
+    </svg>
+    <span class="ocdl-choices" aria-hidden="true">
+      <button class="ocdl-choice" data-fmt="video" title="Download video (mp4/webm)">MP4</button>
+      <button class="ocdl-choice" data-fmt="mp3" title="Download audio only (mp3)">MP3</button>
+    </span>`;
   // Don't let the host page's hover/click handlers interfere.
   btn.addEventListener("mousedown", (e) => e.stopPropagation(), true);
   btn.addEventListener("click", onClick, true);
@@ -45,10 +49,12 @@
       return;
     }
     btn.style.top = `${Math.max(r.top + 10, 6)}px`;
-    // Clamp into the viewport: the button is 36px wide (content.css), so keep
-    // it between a 6px left margin and the right edge less its width + margin.
-    const left = Math.min(Math.max(r.right - 46, 6), innerWidth - 42);
-    btn.style.left = `${left}px`;
+    // Anchor the button's RIGHT edge near the video's top-right corner, so the
+    // hover expansion (the MP4/MP3 pill) grows leftwards over the video rather
+    // than spilling past its edge. Clamp so even the expanded pill (~96px,
+    // content.css) stays inside the viewport.
+    const right = Math.min(Math.max(innerWidth - r.right + 10, 6), innerWidth - 102);
+    btn.style.right = `${right}px`;
   }
 
   function show(video) {
@@ -139,11 +145,16 @@
     e.preventDefault();
     e.stopPropagation();
     if (busy) return;
+    // Only the MP4/MP3 segments start a download; the pill itself is inert.
+    // (They're what's under the cursor whenever the button is expanded.)
+    const choice = e.target.closest(".ocdl-choice");
+    if (!choice) return;
+    const format = choice.dataset.fmt;
     const url = resolveUrl(currentVideo);
     busy = true;
     flash("ocdl-loading");
     try {
-      const res = await chrome.runtime.sendMessage({ type: "download", url });
+      const res = await chrome.runtime.sendMessage({ type: "download", url, format });
       if (res && res.ok) {
         flash("ocdl-done");
         btn.title = "Sent to downloader ✓";

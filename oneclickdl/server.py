@@ -101,7 +101,9 @@ def make_server(manager, settings, log=lambda msg: None):
                 self._reply(400, {"ok": False, "error": "invalid JSON"})
                 return
 
-            job = manager.submit(data.get("url", ""))
+            # Optional "format": "video" (default) or "mp3". submit() coerces
+            # anything unrecognised back to video, so no validation needed here.
+            job = manager.submit(data.get("url", ""), data.get("format", "video"))
             if not job:
                 self._reply(400, {"ok": False, "error": "missing or invalid url"})
                 return
