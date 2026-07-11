@@ -72,7 +72,9 @@ function renderJobs(jobs) {
 
     const name = document.createElement("span");
     name.className = "job-name";
-    name.textContent = jobLabel(job);
+    // Playlist jobs show which entry is downloading, e.g. "[3/25] ...".
+    const counter = job.item_count ? `[${job.item}/${job.item_count}] ` : "";
+    name.textContent = counter + jobLabel(job);
     name.title = job.url;
 
     const cancel = document.createElement("button");

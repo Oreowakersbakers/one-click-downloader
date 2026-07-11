@@ -73,9 +73,12 @@ Running from source works too:
 - Or from a terminal: `python oneclick.py`.
 
 Pick **Video** (mp4/webm, the site's native file) or **MP3** from the dropdown
-next to the Download button before starting a download. While a download runs,
-a **Cancel** link appears next to the percentage — it stops yt-dlp and cleans
-up the half-finished file.
+next to the Download button before starting a download. Tick **Playlist** to
+download every entry of a playlist link — entries land in a subfolder named
+after the playlist, the progress bar tracks the whole playlist, and the status
+line shows which entry it's on. While a download runs, a **Cancel** link
+appears next to the percentage — it stops yt-dlp and cleans up the
+half-finished file (in a playlist, entries that already finished are kept).
 
 > **Caveat:** MP3 downloads require `ffmpeg` to be installed and on PATH (see
 > Requirements above) — yt-dlp uses it to convert the audio. Without it, MP3
@@ -116,6 +119,14 @@ expands into **MP4 | MP3**. Click MP4 for the video file or MP3 for audio only
 (MP3 needs ffmpeg — see the caveat above). The file lands in
 `Downloads/OneClickDL/`.
 
+**Playlists:** when the video you're watching belongs to a YouTube playlist,
+the button expands into **MP4 | MP3 | ALL** instead — ALL downloads the whole
+playlist. On a dedicated playlist page (`youtube.com/playlist?list=...`),
+where there's no video to hover, a floating **Playlist** pill appears at the
+bottom-right; hover it and pick MP4 or MP3 for every entry. Playlist downloads
+save into a subfolder named after the playlist, and the popup's Downloading
+list shows which entry it's on (e.g. `[3/25]`).
+
 Click the extension's **toolbar icon** for the popup: it has a paste-a-link
 box, and while anything is downloading it shows a live **Downloading** list
 with a progress bar and a **Cancel** button per download — so you can stop a
@@ -136,4 +147,5 @@ card. Sites it doesn't have a special rule for fall back to the page URL.
 - [x] Standalone Windows exe (`build-exe.bat`)
 - [x] Versioned GitHub release assets and Windows installer
 - [x] Cancel a download from the app window or the extension popup
+- [x] Whole-playlist downloads (app checkbox, on-video ALL segment, playlist-page pill)
 - [ ] Polish: auto-start on login, per-download history, more site rules

@@ -157,9 +157,14 @@ def make_server(manager, settings, log=lambda msg: None):
             if data is None:
                 return
 
-            # Optional "format": "video" (default) or "mp3". submit() coerces
-            # anything unrecognised back to video, so no validation needed here.
-            job = manager.submit(data.get("url", ""), data.get("format", "video"))
+            # Optional "format": "video" (default) or "mp3", and optional
+            # "playlist": true to fetch every entry of a playlist URL.
+            # submit() coerces anything unrecognised, so no validation here.
+            job = manager.submit(
+                data.get("url", ""),
+                data.get("format", "video"),
+                playlist=data.get("playlist", False),
+            )
             if not job:
                 self._reply(400, {"ok": False, "error": "missing or invalid url"})
                 return

@@ -27,6 +27,7 @@
     <span class="ocdl-choices">
       <button class="ocdl-choice" data-fmt="video" title="Download video (mp4/webm)">MP4</button>
       <button class="ocdl-choice" data-fmt="mp3" title="Download audio only (mp3)">MP3</button>
+      <button class="ocdl-choice ocdl-choice-all" data-fmt="playlist" title="Download the whole playlist">ALL</button>
     </span>`;
   // Don't let the host page's hover/click handlers interfere.
   btn.addEventListener("mousedown", (e) => e.stopPropagation(), true);
@@ -62,15 +63,19 @@
     btn.style.top = `${Math.max(r.top + 10, 6)}px`;
     // Anchor the button's RIGHT edge near the video's top-right corner, so the
     // hover expansion (the MP4/MP3 pill) grows leftwards over the video rather
-    // than spilling past its edge. Clamp so even the expanded pill (~96px,
-    // content.css) stays inside the viewport.
-    const right = Math.min(Math.max(innerWidth - r.right + 10, 6), innerWidth - 102);
+    // than spilling past its edge. Clamp so even the expanded pill (96px, or
+    // 140px with the ALL segment — content.css) stays inside the viewport.
+    const pillW = btn.classList.contains("ocdl-has-playlist") ? 140 : 96;
+    const right = Math.min(Math.max(innerWidth - r.right + 10, 6), innerWidth - pillW - 6);
     btn.style.right = `${right}px`;
   }
 
   function show(video) {
     ensureAttached();
     currentVideo = video;
+    // Reveal the extra ALL segment when this page belongs to a playlist
+    // (position() reads the class to size its clamp, so toggle first).
+    btn.classList.toggle("ocdl-has-playlist", !!playlistUrl());
     position(video);
     btn.classList.add("ocdl-visible");
   }
@@ -154,11 +159,53 @@
     return location.href;
   }
 
+  // ---- playlist detection ----
+  // Canonical URL of the playlist the current page belongs to, or null.
+  // YouTube-only for now — it's where playlists live (`list=` on watch pages,
+  // /playlist pages, including music.youtube.com). RD*-prefixed lists are
+  // auto-generated "mixes" (endless radio queues, not real playlists) — skip.
+  function playlistUrl() {
+    if (!location.hostname.includes("youtube.com")) return null;
+    try {
+      const u = new URL(location.href);
+      const list = u.searchParams.get("list");
+      if (!list || list.startsWith("RD")) return null;
+      return `${u.origin}/playlist?list=${encodeURIComponent(list)}`;
+    } catch {
+      return null;
+    }
+  }
+
   // ---- click handling ----
+  // One shared send path for the on-video pill and the playlist-page pill.
   let busy = false;
-  function flash(state) {
-    btn.classList.remove("ocdl-loading", "ocdl-done", "ocdl-error");
-    if (state) btn.classList.add(state);
+  function flash(el, state) {
+    el.classList.remove("ocdl-loading", "ocdl-done", "ocdl-error");
+    if (state) el.classList.add(state);
+  }
+
+  async function requestDownload(el, idleTitle, payload) {
+    busy = true;
+    flash(el, "ocdl-loading");
+    try {
+      const res = await chrome.runtime.sendMessage(payload);
+      if (res && res.ok) {
+        flash(el, "ocdl-done");
+        el.title = "Sent to downloader ✓";
+      } else {
+        flash(el, "ocdl-error");
+        el.title = (res && res.error) || "Couldn't reach the helper app.";
+      }
+    } catch (err) {
+      flash(el, "ocdl-error");
+      el.title = "Extension error — try reloading the page.";
+    } finally {
+      setTimeout(() => {
+        flash(el, null);
+        el.title = idleTitle;
+        busy = false;
+      }, 2200);
+    }
   }
 
   async function onClick(e) {
@@ -169,32 +216,75 @@
     e.preventDefault();
     e.stopPropagation();
     if (busy) return;
-    // Only the MP4/MP3 segments start a download; the pill itself is inert.
-    // (They're what's under the cursor whenever the button is expanded.)
+    // Only the MP4/MP3/ALL segments start a download; the pill itself is
+    // inert. (They're what's under the cursor whenever it's expanded.)
     const choice = e.target.closest(".ocdl-choice");
     if (!choice) return;
-    const format = choice.dataset.fmt;
-    const url = resolveUrl(currentVideo);
-    busy = true;
-    flash("ocdl-loading");
-    try {
-      const res = await chrome.runtime.sendMessage({ type: "download", url, format });
-      if (res && res.ok) {
-        flash("ocdl-done");
-        btn.title = "Sent to downloader ✓";
-      } else {
-        flash("ocdl-error");
-        btn.title = (res && res.error) || "Couldn't reach the helper app.";
-      }
-    } catch (err) {
-      flash("ocdl-error");
-      btn.title = "Extension error — try reloading the page.";
-    } finally {
-      setTimeout(() => {
-        flash(null);
-        btn.title = "Download this video";
-        busy = false;
-      }, 2200);
+    const fmt = choice.dataset.fmt;
+    if (fmt === "playlist") {
+      const url = playlistUrl();
+      if (!url) return;
+      await requestDownload(btn, "Download this video", {
+        type: "download", url, format: "video", playlist: true,
+      });
+      return;
+    }
+    await requestDownload(btn, "Download this video", {
+      type: "download", url: resolveUrl(currentVideo), format: fmt,
+    });
+  }
+
+  // ---- dedicated playlist pages ----
+  // youtube.com/playlist has no <video> to hover, so the on-video button can
+  // never appear there. Those pages get their own floating pill instead
+  // (bottom-right): hover it and pick MP4 or MP3 for the whole playlist.
+  const PL_TITLE = "Download this playlist";
+  const plBtn = document.createElement("div");
+  plBtn.className = "ocdl-pl";
+  plBtn.setAttribute("role", "group");
+  plBtn.setAttribute("aria-label", PL_TITLE);
+  plBtn.tabIndex = 0;
+  plBtn.title = PL_TITLE;
+  plBtn.innerHTML = `
+    <svg class="ocdl-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v8.59l2.3-2.3a1 1 0 0 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 1.4-1.42l2.3 2.3V4a1 1 0 0 1 1-1Z"/>
+      <path fill="currentColor" d="M5 18a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z"/>
+    </svg>
+    <svg class="ocdl-spin" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path fill="currentColor" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2Z"/>
+    </svg>
+    <span class="ocdl-pl-label">Playlist</span>
+    <span class="ocdl-pl-choices">
+      <button class="ocdl-choice" data-fmt="video" title="Download every video (mp4/webm)">MP4</button>
+      <button class="ocdl-choice" data-fmt="mp3" title="Download everything as audio (mp3)">MP3</button>
+    </span>`;
+  plBtn.addEventListener("mousedown", (e) => e.stopPropagation(), true);
+  plBtn.addEventListener("click", async (e) => {
+    if (!e.isTrusted) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (busy) return;
+    const choice = e.target.closest(".ocdl-choice");
+    if (!choice) return;
+    const url = playlistUrl();
+    if (!url) return;
+    await requestDownload(plBtn, PL_TITLE, {
+      type: "download", url, format: choice.dataset.fmt, playlist: true,
+    });
+  }, true);
+
+  function updatePlaylistPill() {
+    const wanted = location.pathname === "/playlist" && !!playlistUrl();
+    if (wanted) {
+      if (!plBtn.isConnected) document.body.appendChild(plBtn);
+      plBtn.classList.add("ocdl-visible");
+    } else {
+      plBtn.classList.remove("ocdl-visible");
     }
   }
+  // YouTube is an SPA; it announces route changes with this document event.
+  // popstate covers back/forward on anything else that might grow support.
+  document.addEventListener("yt-navigate-finish", updatePlaylistPill, true);
+  addEventListener("popstate", updatePlaylistPill, true);
+  updatePlaylistPill();
 })();
