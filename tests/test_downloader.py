@@ -16,15 +16,16 @@ from oneclickdl.downloader import (
     EV_CANCELLED,
     EV_DONE,
     EV_FAILED,
+    EV_PROGRESS,
 )
 from oneclickdl.server import make_server
 
 
 class FakeProc:
-    """Stands in for the yt-dlp process: scripted output, then a clean exit."""
+    """Stands in for the yt-dlp process: scripted output, then an exit."""
 
-    def __init__(self, lines, on_wait=None):
-        self.returncode = 0
+    def __init__(self, lines, on_wait=None, returncode=0):
+        self.returncode = returncode
         self.pid = 4242
         self.stdout = iter(lines)
         self._on_wait = on_wait
@@ -132,6 +133,74 @@ class DownloadManagerTests(unittest.TestCase):
             # the process.
             self.assertEqual(popen_kwargs.get("encoding"), "utf-8")
             self.assertEqual(popen_kwargs.get("errors"), "replace")
+
+
+    def test_playlist_cancel_keeps_finished_entries(self):
+        """A playlist job folds per-entry progress into one overall bar, and
+        cancelling mid-playlist only removes the entry still in flight."""
+        events = queue.Queue()
+        progress = []
+
+        with tempfile.TemporaryDirectory() as download_dir:
+            sub = os.path.join(download_dir, "My Playlist")
+            os.makedirs(sub)
+            done_path = os.path.join(sub, "first [a1].mp4")
+            partial_path = os.path.join(sub, "second [b2].mp4")
+            for path in (done_path, partial_path):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("x")
+
+            settings = Settings(download_dir=download_dir)
+            manager = DownloadManager(settings, lambda: "fake-yt-dlp")
+
+            def listener(event, job, data=None):
+                if event == EV_PROGRESS:
+                    progress.append(data)
+                events.put((event, job))
+
+            manager.add_listener(listener)
+
+            job_box = {}
+            captured_cmd = []
+
+            def fake_popen(cmd, **kwargs):
+                captured_cmd.extend(cmd)
+                return FakeProc(
+                    [
+                        "[download] Downloading playlist: My Playlist\n",
+                        "[download] Downloading item 1 of 2\n",
+                        f"[download] Destination: {done_path}\n",
+                        "[download] 100% of 1.00MiB\n",
+                        "[download] Downloading item 2 of 2\n",
+                        f"[download] Destination: {partial_path}\n",
+                        "[download]  50.0% of 1.00MiB\n",
+                    ],
+                    # Cancel lands while entry 2 is mid-download; the process
+                    # "dies" with a nonzero code, as a killed yt-dlp would.
+                    on_wait=lambda: manager.cancel(job_box["job"].id),
+                    returncode=1,
+                )
+
+            with mock.patch("oneclickdl.downloader.subprocess.Popen", fake_popen):
+                job_box["job"] = manager.submit(
+                    "https://youtube.com/playlist?list=PL1", playlist=True
+                )
+
+                deadline = time.monotonic() + 2
+                terminal = None
+                while terminal is None and time.monotonic() < deadline:
+                    event, _job = events.get(timeout=2)
+                    if event in (EV_DONE, EV_CANCELLED, EV_FAILED):
+                        terminal = event
+
+            self.assertEqual(terminal, EV_CANCELLED)
+            self.assertIn("--yes-playlist", captured_cmd)
+            # Overall progress: entry 1 done -> 50%, entry 2 at 50% -> 75%.
+            self.assertEqual(progress, [50.0, 75.0])
+            # Entry 1 finished before the cancel — it must survive; only the
+            # in-flight entry 2 gets cleaned up (inside the playlist subfolder).
+            self.assertTrue(os.path.exists(done_path), "finished entry deleted")
+            self.assertFalse(os.path.exists(partial_path), "partial entry kept")
 
 
 class SettingsPersistenceTests(unittest.TestCase):

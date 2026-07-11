@@ -36,6 +36,10 @@ _TERMINAL = ("done", "failed", "cancelled")
 
 _PERCENT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)%")
 
+# Playlist bookkeeping lines. yt-dlp announces each entry with
+# "[download] Downloading item 3 of 25" ("video" in older versions).
+_ITEM_RE = re.compile(r"^\[download\] Downloading (?:item|video) (\d+) of (\d+)")
+
 # The two ways a job can come out: the site's native video file (mp4/webm),
 # or audio-only converted to mp3. Anything else is coerced to FMT_VIDEO.
 FMT_VIDEO = "video"
@@ -65,9 +69,16 @@ class Job:
     id: int
     url: str
     fmt: str = FMT_VIDEO
+    # True = download every entry of a playlist URL (into a subfolder named
+    # after the playlist) instead of just the single video.
+    playlist: bool = False
     status: str = "queued"
     title: str = ""
     percent: float = 0.0
+    # Which playlist entry is downloading, e.g. 3 of 25. Zero until yt-dlp
+    # reports entries (i.e. zero for plain single-video jobs).
+    item: int = 0
+    item_count: int = 0
     error: str = ""
     output_paths: list = field(default_factory=list)
 
@@ -112,11 +123,13 @@ class DownloadManager:
                 pass
 
     # ---- submitting work ----
-    def submit(self, url, fmt=FMT_VIDEO):
+    def submit(self, url, fmt=FMT_VIDEO, playlist=False):
         """Queue a URL for download.
 
         `fmt` is one of FORMATS; anything unrecognised falls back to video so
         callers (like the HTTP server) can pass user input straight through.
+        `playlist` asks for every entry of a playlist URL rather than the
+        single video (any truthy value counts, same pass-through reasoning).
 
         Returns the Job, or None if the URL is blank or not a valid http(s)
         link (rejecting the latter is what stops option-injection into yt-dlp).
@@ -131,7 +144,7 @@ class DownloadManager:
         # Guard id allocation + registration: submit() is called from multiple
         # HTTP worker threads as well as the GUI thread.
         with self._lock:
-            job = Job(id=next(self._ids), url=url, fmt=fmt)
+            job = Job(id=next(self._ids), url=url, fmt=fmt, playlist=bool(playlist))
             self._active[job.id] = job
         self._emit(EV_QUEUED, job)
         self._queue.put(job)
@@ -149,9 +162,12 @@ class DownloadManager:
                     "id": job.id,
                     "url": job.url,
                     "format": job.fmt,
+                    "playlist": job.playlist,
                     "status": job.status,
                     "title": job.title,
                     "percent": job.percent,
+                    "item": job.item,
+                    "item_count": job.item_count,
                 }
                 for job in self._active.values()
             ]
@@ -274,11 +290,21 @@ class DownloadManager:
 
         cmd = [
             ytdlp,
-            "--no-playlist",
             "--newline",
             "-P", download_dir,
-            "-o", "%(title).80s [%(id)s].%(ext)s",
         ]
+        if job.playlist:
+            # Fetch every entry, grouped into a subfolder named after the
+            # playlist so a 50-video playlist doesn't flood the download dir.
+            cmd += [
+                "--yes-playlist",
+                "-o", "%(playlist_title).80s/%(title).80s [%(id)s].%(ext)s",
+            ]
+        else:
+            cmd += [
+                "--no-playlist",
+                "-o", "%(title).80s [%(id)s].%(ext)s",
+            ]
         if job.fmt == FMT_MP3:
             # Grab the best audio-only stream and convert it to mp3 (the
             # conversion step needs ffmpeg, which yt-dlp finds on PATH).
@@ -346,6 +372,23 @@ class DownloadManager:
             return
         self._emit(EV_LOG, job, line)
 
+        # Playlist bookkeeping: track which entry is downloading, and forget
+        # the previous entry's output paths — those files are complete, so a
+        # cancel from here on must only remove the entry still in flight.
+        # Parsed for every job (not just playlist mode) because a pasted
+        # playlist-only URL expands into multiple entries either way.
+        item = _ITEM_RE.match(line)
+        if item:
+            job.item = int(item.group(1))
+            job.item_count = int(item.group(2))
+            job.output_paths.clear()
+            return
+
+        if line.startswith("[download] Downloading playlist:"):
+            # Show the playlist's name until the first file supplies a title.
+            job.title = line.split(":", 1)[1].strip()
+            return
+
         # Only treat yt-dlp's own progress lines as progress — otherwise a "%"
         # anywhere in a title or message would jiggle the bar. With --newline,
         # progress arrives as "[download]  12.3% of ...". Destination lines
@@ -355,10 +398,16 @@ class DownloadManager:
             match = _PERCENT_RE.search(line)
             if match:
                 try:
-                    job.percent = float(match.group(1))
-                    self._emit(EV_PROGRESS, job, job.percent)
+                    pct = float(match.group(1))
                 except ValueError:
-                    pass
+                    pct = None
+                if pct is not None:
+                    if job.item_count:
+                        # Fold per-file progress into one overall bar:
+                        # finished entries + the current entry's fraction.
+                        pct = (job.item - 1 + pct / 100.0) / job.item_count * 100.0
+                    job.percent = pct
+                    self._emit(EV_PROGRESS, job, job.percent)
 
         if "Destination:" in line:
             path = line.split("Destination:", 1)[1].strip()
@@ -404,7 +453,11 @@ class DownloadManager:
         for path in candidates:
             abs_path = os.path.abspath(path)
             parent = os.path.normcase(os.path.dirname(abs_path))
-            if parent != download_dir:
+            # Only ever delete inside the download dir — directly in it, or in
+            # a subfolder of it (playlist jobs save under one per playlist).
+            if parent != download_dir and not parent.startswith(
+                download_dir + os.sep
+            ):
                 continue
             try:
                 if os.path.isfile(abs_path):

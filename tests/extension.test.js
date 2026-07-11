@@ -41,48 +41,158 @@ function makeNode() {
   return node;
 }
 
-test("content script rejects synthetic clicks and exposes real buttons", async () => {
-  const attributes = {};
-  const calls = [];
-  const button = makeNode();
-  button.classList = { add() {}, contains() { return false; }, remove() {} };
-  button.contains = () => false;
-  button.isConnected = false;
-  button.setAttribute = (name, value) => { attributes[name] = value; };
+// A fuller element mock for the content script, which uses classList,
+// attributes, and DOM attachment (the popup/options tests get by with less).
+function makeElementNode() {
+  const n = makeNode();
+  n.attributes = {};
+  n.classes = new Set();
+  n.classList = {
+    add: (...cls) => cls.forEach((c) => n.classes.add(c)),
+    remove: (...cls) => cls.forEach((c) => n.classes.delete(c)),
+    contains: (c) => n.classes.has(c),
+    toggle: (c, force) => {
+      const on = force === undefined ? !n.classes.has(c) : !!force;
+      if (on) n.classes.add(c);
+      else n.classes.delete(c);
+      return on;
+    },
+  };
+  n.contains = () => false;
+  n.isConnected = false;
+  n.setAttribute = (name, value) => {
+    n.attributes[name] = value;
+  };
+  return n;
+}
 
+// Shared scaffold: runs content.js against a mocked page, returning the two
+// elements it creates (the on-video button and the playlist pill) plus the
+// captured chrome.runtime messages and document event listeners.
+function runContentScript(location) {
+  const calls = [];
+  const created = [];
+  const docListeners = {};
   const context = {
     URL,
     addEventListener() {},
-    chrome: { runtime: { sendMessage: async (message) => calls.push(message) } },
+    chrome: {
+      runtime: {
+        sendMessage: async (message) => {
+          calls.push(message);
+          return { ok: true };
+        },
+      },
+    },
     document: {
       activeElement: null,
-      addEventListener() {},
-      body: { appendChild() { button.isConnected = true; } },
-      createElement: () => button,
+      addEventListener: (type, fn) => {
+        docListeners[type] = fn;
+      },
+      body: {
+        appendChild(node) {
+          node.isConnected = true;
+        },
+      },
+      createElement: () => {
+        const n = makeElementNode();
+        created.push(n);
+        return n;
+      },
       elementsFromPoint: () => [],
     },
     innerHeight: 800,
     innerWidth: 1200,
-    location: { href: "https://example.com/video", hostname: "example.com" },
+    location,
     requestAnimationFrame: () => 1,
-    setTimeout() {},
+    // Run the flash-reset immediately so `busy` releases between clicks.
+    setTimeout(fn) {
+      fn();
+    },
   };
-
   vm.runInNewContext(source("content.js"), context);
+  const [button, playlistPill] = created;
+  return { button, playlistPill, calls, docListeners, context };
+}
 
-  assert.equal(attributes.role, "group");
-  assert.equal(button.tabIndex, 0);
-  assert.doesNotMatch(button.innerHTML, /ocdl-choices[^>]+aria-hidden/);
-
-  await button.listeners.click({
-    isTrusted: false,
+function click(node, fmt, isTrusted = true) {
+  return node.listeners.click({
+    isTrusted,
     preventDefault() {},
     stopPropagation() {},
-    target: { closest: () => ({ dataset: { fmt: "video" } }) },
+    target: { closest: () => ({ dataset: { fmt } }) },
   });
+}
+
+test("content script rejects synthetic clicks and exposes real buttons", async () => {
+  const { button, playlistPill, calls } = runContentScript({
+    href: "https://example.com/video",
+    hostname: "example.com",
+    pathname: "/video",
+  });
+
+  assert.equal(button.attributes.role, "group");
+  assert.equal(button.tabIndex, 0);
+  assert.doesNotMatch(button.innerHTML, /ocdl-choices[^>]+aria-hidden/);
+  // Not a playlist page — the floating pill stays hidden.
+  assert.equal(playlistPill.classes.has("ocdl-visible"), false);
+
+  await click(button, "video", false);
+  await click(playlistPill, "video", false);
   assert.deepEqual(calls, []);
   assert.match(source("content.css"), /:focus-within/);
   assert.match(source("content.js"), /addEventListener\("focusin"/);
+});
+
+test("playlist controls send whole-playlist downloads", async () => {
+  const { button, playlistPill, calls, docListeners, context } =
+    runContentScript({
+      href: "https://www.youtube.com/watch?v=abc&list=PL123",
+      hostname: "www.youtube.com",
+      pathname: "/watch",
+    });
+
+  // The ALL segment on the hover button sends the canonical playlist URL.
+  await click(button, "playlist");
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    { ...calls[0] },
+    {
+      type: "download",
+      url: "https://www.youtube.com/playlist?list=PL123",
+      format: "video",
+      playlist: true,
+    },
+  );
+
+  // Navigating to the dedicated playlist page reveals the floating pill...
+  context.location.href = "https://www.youtube.com/playlist?list=PL123";
+  context.location.pathname = "/playlist";
+  docListeners["yt-navigate-finish"]();
+  assert.equal(playlistPill.classes.has("ocdl-visible"), true);
+
+  // ...whose choices download the whole playlist in the picked format.
+  await click(playlistPill, "mp3");
+  assert.equal(calls.length, 2);
+  assert.deepEqual(
+    { ...calls[1] },
+    {
+      type: "download",
+      url: "https://www.youtube.com/playlist?list=PL123",
+      format: "mp3",
+      playlist: true,
+    },
+  );
+});
+
+test("auto-generated mixes are not offered as playlists", () => {
+  const { button, playlistPill } = runContentScript({
+    href: "https://www.youtube.com/watch?v=abc&list=RDabc",
+    hostname: "www.youtube.com",
+    pathname: "/watch",
+  });
+  assert.equal(playlistPill.classes.has("ocdl-visible"), false);
+  assert.equal(button.classes.has("ocdl-has-playlist"), false);
 });
 
 test("options connection test uses an authenticated request", async () => {

@@ -189,6 +189,18 @@ class Window:
         )
         fmt_menu.pack(side="left", padx=(8, 0))
 
+        # Whole-playlist mode: fetch every entry of a playlist link (into a
+        # subfolder named after the playlist) instead of the single video.
+        self.playlist_var = tk.BooleanVar(value=False)
+        playlist_check = tk.Checkbutton(
+            row, text="Playlist", variable=self.playlist_var,
+            font=("Segoe UI", 9), bg=BG, fg=MUTED, cursor="hand2",
+            activebackground=BG, activeforeground=INK,
+            selectcolor=SURFACE, relief="flat", bd=0,
+            highlightthickness=0, padx=2,
+        )
+        playlist_check.pack(side="left", padx=(6, 0))
+
         self.dl_btn = self._primary_btn(row, "Download", self.start_download)
         self.dl_btn.pack(side="left", padx=(10, 0))
 
@@ -395,7 +407,7 @@ class Window:
             if self.fmt_var.get() == "MP3"
             else downloader.FMT_VIDEO
         )
-        if not self.manager.submit(url, fmt):
+        if not self.manager.submit(url, fmt, playlist=self.playlist_var.get()):
             messagebox.showinfo(
                 "That isn't a link",
                 "It should be a web address starting with http:// or https://.",
@@ -447,6 +459,8 @@ class Window:
             # Already on the GUI thread here — append directly rather than
             # re-deferring through self.log (which schedules another after()).
             kind = "mp3" if job.fmt == downloader.FMT_MP3 else "video"
+            if job.playlist:
+                kind += " playlist"
             self._append_log(f"↓ queued ({kind})  {job.url}\n", "queued")
         elif event == downloader.EV_STARTED:
             self._active_job_id = job.id
@@ -463,7 +477,11 @@ class Window:
             pct = data or 0
             self.progress["value"] = pct
             self.pct_label.config(text=f"{pct:.0f}%")
-            self._set_status("Downloading…")
+            if job.item_count:
+                # Playlist: the bar is overall progress; say where we are.
+                self._set_status(f"Downloading… {job.item} of {job.item_count}")
+            else:
+                self._set_status("Downloading…")
         elif event == downloader.EV_LOG:
             self._append_log(data + "\n")
         elif event == downloader.EV_DONE:

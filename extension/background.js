@@ -43,10 +43,11 @@ async function pingHelper() {
   }
 }
 
-async function sendDownload(url, format) {
+async function sendDownload(url, format, playlist) {
   if (!url) return { ok: false, error: "No video URL found on this page." };
   // "video" (mp4/webm, the default) or "mp3" — the helper coerces anything else.
   if (format !== "mp3") format = "video";
+  playlist = playlist === true; // whole-playlist mode; the helper coerces too
 
   const { port, token } = await getConfig();
   if (!token) {
@@ -60,7 +61,7 @@ async function sendDownload(url, format) {
         "Content-Type": "application/json",
         "X-OneClick-Token": token,
       },
-      body: JSON.stringify({ url, format }),
+      body: JSON.stringify({ url, format, playlist }),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const data = await res.json().catch(() => ({}));
@@ -110,7 +111,7 @@ async function helperRequest(path, body) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || !msg.type) return;
   if (msg.type === "download") {
-    sendDownload(msg.url, msg.format).then(sendResponse);
+    sendDownload(msg.url, msg.format, msg.playlist).then(sendResponse);
     return true; // keep the channel open for the async reply
   }
   if (msg.type === "ping") {
