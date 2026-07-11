@@ -46,6 +46,13 @@
   }
 
   function position(video) {
+    // The page may have swapped the video out from under us (SPA navigation,
+    // virtualized feeds). A detached element reports an all-zero rect, which
+    // would strand the button floating near the viewport corner.
+    if (!video.isConnected) {
+      hide();
+      return;
+    }
     const r = video.getBoundingClientRect();
     // Hide if the video has scrolled out of view.
     if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) {

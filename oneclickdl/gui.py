@@ -411,13 +411,20 @@ class Window:
 
     def open_folder(self):
         path = self.settings.download_dir
-        os.makedirs(path, exist_ok=True)
-        if config.IS_WINDOWS:
-            os.startfile(path)  # noqa: B606
-        elif sys.platform == "darwin":
-            subprocess.run(["open", path])
-        else:
-            subprocess.run(["xdg-open", path])
+        try:
+            os.makedirs(path, exist_ok=True)
+            if config.IS_WINDOWS:
+                os.startfile(path)  # noqa: B606
+            elif sys.platform == "darwin":
+                subprocess.run(["open", path])
+            else:
+                subprocess.run(["xdg-open", path])
+        except OSError as e:
+            # An invalid configured folder (removed drive, bad path) must not
+            # die silently inside the Tk callback — say what went wrong.
+            messagebox.showerror(
+                "Can't open folder", f"Couldn't open:\n{path}\n\n{e}"
+            )
 
     def _copy_token(self):
         self.root.clipboard_clear()
@@ -449,6 +456,10 @@ class Window:
             self.pct_label.config(text="0%")
             self._set_status("Downloading…")
         elif event == downloader.EV_PROGRESS:
+            # Buffered progress lines keep arriving for a moment after the
+            # user clicks Cancel; don't let them stomp "Cancelling...".
+            if job.status == "cancelling":
+                return
             pct = data or 0
             self.progress["value"] = pct
             self.pct_label.config(text=f"{pct:.0f}%")

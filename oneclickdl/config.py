@@ -70,11 +70,21 @@ class Settings:
     @classmethod
     def load(cls):
         """Load settings, creating a token on first run."""
+        persist = True
         try:
             with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, ValueError):
+        except FileNotFoundError:
+            data = {}  # first run
+        except ValueError:
+            data = {}  # corrupt file — its contents are junk, safe to rewrite
+        except OSError:
+            # Couldn't READ the file (locked by AV/backup, permissions, ...).
+            # The settings on disk are probably intact, so run on defaults for
+            # this session but do NOT write anything back — overwriting would
+            # silently replace the token and break the extension's pairing.
             data = {}
+            persist = False
 
         token = data.get("token", "")
         if not isinstance(token, str):
@@ -87,10 +97,16 @@ class Settings:
         )
         if not settings.token:
             settings.token = secrets.token_urlsafe(24)
-            settings.save()
+            if persist:
+                settings.save()
         return settings
 
     def save(self):
         os.makedirs(APP_DIR, exist_ok=True)
-        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+        # Write-then-rename so a crash mid-write can't leave a truncated
+        # settings.json (which would read as corrupt and mint a new token,
+        # breaking the extension's pairing).
+        tmp = SETTINGS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, indent=2)
+        os.replace(tmp, SETTINGS_PATH)

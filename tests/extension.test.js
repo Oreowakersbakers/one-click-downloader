@@ -89,9 +89,8 @@ test("options connection test uses an authenticated request", async () => {
   const elements = Object.fromEntries(
     ["token", "port", "status", "save", "test"].map((id) => [id, makeNode()]),
   );
-  elements.token.value = "wrong-token";
-  elements.port.value = "53117";
   const messages = [];
+  const saved = [];
   const context = {
     chrome: {
       runtime: {
@@ -101,9 +100,15 @@ test("options connection test uses an authenticated request", async () => {
         },
       },
       storage: {
+        // Nothing in local yet: the page must fall back to values an older
+        // version saved in sync, and save into local (never back into sync,
+        // which would leak this machine's token to other Chrome profiles).
+        local: {
+          get: async () => ({}),
+          set: async (values) => saved.push(values),
+        },
         sync: {
           get: async () => ({ token: "wrong-token", port: 53117 }),
-          set: async () => {},
         },
       },
     },
@@ -112,6 +117,7 @@ test("options connection test uses an authenticated request", async () => {
 
   vm.runInNewContext(source("options.js"), context);
   await flushTasks();
+  assert.equal(elements.token.value, "wrong-token"); // migrated from sync
   await elements.test.listeners.click();
 
   // Objects created inside vm have a different prototype, so compare the
@@ -120,6 +126,37 @@ test("options connection test uses an authenticated request", async () => {
   assert.equal(messages[0].type, "status");
   assert.equal(elements.status.className, "err");
   assert.equal(elements.status.textContent, "bad or missing token");
+  assert.equal(saved.length, 1);
+  assert.deepEqual({ ...saved[0] }, { token: "wrong-token", port: 53117 });
+});
+
+test("options rejects an out-of-range port without saving", async () => {
+  const elements = Object.fromEntries(
+    ["token", "port", "status", "save", "test"].map((id) => [id, makeNode()]),
+  );
+  const saved = [];
+  const context = {
+    chrome: {
+      runtime: { sendMessage: async () => ({ ok: true }) },
+      storage: {
+        local: {
+          get: async () => ({ token: "tok", port: 53117 }),
+          set: async (values) => saved.push(values),
+        },
+        sync: { get: async () => ({}) },
+      },
+    },
+    document: { getElementById: (id) => elements[id] },
+  };
+
+  vm.runInNewContext(source("options.js"), context);
+  await flushTasks();
+
+  elements.port.value = "99999";
+  await elements.save.listeners.click();
+  assert.deepEqual(saved, []);
+  assert.equal(elements.status.className, "err");
+  assert.match(elements.status.textContent, /1 and 65535/);
 });
 
 test("failed cancellation is retryable after status refresh", async () => {

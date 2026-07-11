@@ -10,11 +10,23 @@ const DEFAULT_PORT = 53117;
 const FETCH_TIMEOUT_MS = 5000; // a helper that accepts but never replies must not hang us
 
 async function getConfig() {
-  const { port = DEFAULT_PORT, token = "" } = await chrome.storage.sync.get([
-    "port",
-    "token",
-  ]);
-  return { port, token };
+  // The token pairs with THIS machine's helper app (every install generates
+  // its own), so it must live in storage.local: storage.sync would replicate
+  // one machine's token onto every other Chrome profile and break their
+  // pairing. Older versions saved to sync — migrate those values once.
+  let { port, token } = await chrome.storage.local.get(["port", "token"]);
+  if (port === undefined && token === undefined) {
+    const old = await chrome.storage.sync.get(["port", "token"]);
+    if (old.port !== undefined || old.token !== undefined) {
+      port = old.port;
+      token = old.token;
+      await chrome.storage.local.set({
+        port: port ?? DEFAULT_PORT,
+        token: token ?? "",
+      });
+    }
+  }
+  return { port: port ?? DEFAULT_PORT, token: token ?? "" };
 }
 
 async function pingHelper() {

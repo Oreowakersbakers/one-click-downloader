@@ -43,6 +43,11 @@ def make_server(manager, settings, log=lambda msg: None):
     """Build (but don't start) the HTTP server. Call .serve_forever() on it."""
 
     class Handler(BaseHTTPRequestHandler):
+        # Each request runs on its own thread; a client that connects and then
+        # goes quiet would pin that thread forever. Time out idle sockets so
+        # they get closed instead.
+        timeout = 10
+
         # Silence the default stderr request logging.
         def log_message(self, *args):
             pass
@@ -99,7 +104,10 @@ def make_server(manager, settings, log=lambda msg: None):
             except ValueError:
                 self._reply(400, {"ok": False, "error": "invalid Content-Length"})
                 return None
-            if length < 0 or length > MAX_BODY_BYTES:
+            if length < 0:
+                self._reply(400, {"ok": False, "error": "invalid Content-Length"})
+                return None
+            if length > MAX_BODY_BYTES:
                 self._reply(413, {"ok": False, "error": "request body too large"})
                 return None
 

@@ -244,6 +244,11 @@ class Tray:
     def stop(self):
         if self._hwnd:
             ctypes.windll.user32.PostMessageW(self._hwnd, WM_CLOSE, 0, 0)
+            # Give the tray thread a moment to run NIM_DELETE — if the process
+            # exits first, Windows strands a ghost icon in the tray until the
+            # user happens to mouse over it.
+            if threading.current_thread() is not self._thread:
+                self._thread.join(timeout=1.0)
 
 
 def start(on_open, on_quit, tooltip="One-Click Downloader"):
