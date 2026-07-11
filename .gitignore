@@ -9,6 +9,7 @@ env/
 # PyInstaller build output (build-exe.bat)
 build/
 dist/
+release/
 *.spec
 
 # OS

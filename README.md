@@ -45,8 +45,19 @@ history, more sites) touches one file instead of all of them.
 
 ## Run it
 
-The easiest way is the **standalone exe** — build it once, then Python isn't
-needed to run the app at all:
+The easiest way is a packaged build from the project's GitHub Releases page:
+
+1. Download `OneClickDownloader-<version>-Setup.exe` and run it.
+2. The installer places the unpacked extension in its `browser-extension`
+   folder. Portable users should download and extract
+   `OneClickDownloader-Extension-<version>.zip` themselves.
+3. Extract the extension ZIP, then follow **Install the browser extension**
+   below and select the extracted folder when Chrome asks for a folder.
+
+The portable `OneClickDownloader-<version>-Portable.exe` is available for
+people who do not want an installer. Python is not needed for either build.
+
+To build the standalone exe locally instead:
 
 1. Double-click **`build-exe.bat`** (this one-time step needs Python installed).
 2. When it finishes, grab **`dist\One-Click Downloader.exe`** and move it
@@ -93,7 +104,9 @@ The extension adds a download button to the top-right of any video you hover.
    leave it running (the tray icon is enough).
 2. In Chrome/Edge/Brave, go to `chrome://extensions`.
 3. Turn on **Developer mode** (top-right).
-4. Click **Load unpacked** and select the `extension/` folder.
+4. Click **Load unpacked** and select the installed `browser-extension` folder.
+   Portable users should select their extracted extension ZIP folder; when
+   running from source, select `extension/` instead.
 5. Open the extension's **options** (right-click its icon → Options, or click the
    icon → "Pairing / settings"), paste the **pairing token** from the app
    window, and click **Test connection** — it should say connected.
@@ -121,5 +134,6 @@ card. Sites it doesn't have a special rule for fall back to the page URL.
 - [x] Browser extension with the on-video download button
 - [x] Minimize/close to the Windows system tray
 - [x] Standalone Windows exe (`build-exe.bat`)
+- [x] Versioned GitHub release assets and Windows installer
 - [x] Cancel a download from the app window or the extension popup
 - [ ] Polish: auto-start on login, per-download history, more site rules
