@@ -16,8 +16,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Installing PyInstaller (the tool that packs Python apps into an exe)...
-python -m pip install --upgrade --quiet pyinstaller
+echo Installing the pinned build toolchain...
+python -m pip install --quiet -r requirements-build.txt
+if errorlevel 1 goto :fail
+
+python scripts\verify-version.py
 if errorlevel 1 goto :fail
 
 echo Building One-Click Downloader.exe ...

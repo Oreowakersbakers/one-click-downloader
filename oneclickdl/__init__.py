@@ -12,4 +12,4 @@ Nothing in here knows about the browser extension specifically; the extension
 is just one more client of the local server (see server.py).
 """
 
-__version__ = "0.2.0"
+from ._version import __version__

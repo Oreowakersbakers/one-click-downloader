@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify versions
+        run: python scripts/verify-version.py
+      - name: Run Python tests
+        run: python -m unittest discover -v
+      - name: Run extension tests
+        run: node --test tests/extension.test.js
+
+  package-smoke-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install pinned build tools
+        run: python -m pip install -r requirements-build.txt
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          "version=$(python -c 'from oneclickdl import __version__; print(__version__)')" >> $env:GITHUB_OUTPUT
+      - name: Build release assets
+        shell: pwsh
+        run: ./scripts/package-release.ps1 -Version "${{ steps.version.outputs.version }}"
+      - name: Verify packaged files
+        shell: pwsh
+        run: |
+          $expected = @(
+            "release/OneClickDownloader-${{ steps.version.outputs.version }}-Portable.exe",
+            "release/OneClickDownloader-Extension-${{ steps.version.outputs.version }}.zip",
+            "release/SHA256SUMS.txt"
+          )
+          $expected | ForEach-Object { if (-not (Test-Path $_)) { throw "Missing $_" } }

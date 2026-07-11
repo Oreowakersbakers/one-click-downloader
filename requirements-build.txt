@@ -1,0 +1,2 @@
+# Build-only dependencies. Pin these so a release tag remains reproducible.
+pyinstaller==6.21.0
