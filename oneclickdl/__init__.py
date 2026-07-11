@@ -7,6 +7,7 @@ The app is split into focused modules so each part can grow independently:
     downloader.py  DownloadManager — the queue + worker that actually downloads
     server.py      a localhost-only HTTP API the browser extension talks to
     gui.py         the small desktop window (progress + manual fallback)
+    single_instance.py  ensures a new launch takes over and kills the old one
 
 Nothing in here knows about the browser extension specifically; the extension
 is just one more client of the local server (see server.py).
