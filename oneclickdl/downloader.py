@@ -199,6 +199,11 @@ class DownloadManager:
 
     @staticmethod
     def _terminate(proc):
+        # If the process already exited there is nothing to kill — and killing
+        # by PID after exit could in theory hit an unrelated process that
+        # recycled the number (taskkill /T /F would take its children too).
+        if proc.poll() is not None:
+            return
         try:
             if config.IS_WINDOWS:
                 subprocess.run(
@@ -236,25 +241,30 @@ class DownloadManager:
                         # This boundary covers setup errors such as an invalid
                         # download directory so one bad job cannot permanently
                         # kill the application's only worker thread.
-                        if job.status == "cancelling":
-                            job.status = "cancelled"
-                            self._emit(EV_CANCELLED, job)
-                        else:
-                            job.status = "failed"
-                            job.error = str(e)
-                            self._emit(EV_FAILED, job)
+                        self._finish_failed(job, str(e))
             finally:
                 with self._lock:
                     self._active.pop(job.id, None)
                     self._procs.pop(job.id, None)
                 self._queue.task_done()
 
+    def _finish_failed(self, job, error):
+        """Mark a job failed — unless a cancel raced in, which wins."""
+        with self._lock:
+            cancelled = job.status == "cancelling"
+            job.status = "cancelled" if cancelled else "failed"
+        if cancelled:
+            self._emit(EV_CANCELLED, job)
+        else:
+            job.error = error
+            self._emit(EV_FAILED, job)
+
     def _process(self, job):
         ytdlp = self._get_ytdlp()
         if not ytdlp:
-            job.status = "failed"
-            job.error = "yt-dlp isn't available yet — give it a moment and retry."
-            self._emit(EV_FAILED, job)
+            self._finish_failed(
+                job, "yt-dlp isn't available yet — give it a moment and retry."
+            )
             return
 
         download_dir = self._settings.download_dir
@@ -277,12 +287,18 @@ class DownloadManager:
             "--",  # everything after this is positional — never an option flag
             job.url,
         ]
+        proc = None
         try:
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                # yt-dlp prints video titles in its output. Decode as UTF-8 —
+                # NOT the locale codec (cp1252 on Windows), which can raise
+                # UnicodeDecodeError mid-read — and replace any stray bytes so
+                # a weird title can never abort the read loop.
+                encoding="utf-8",
+                errors="replace",
                 **self._popen_kwargs(),
             )
             # Register the process so cancel() can reach it. If a cancel landed
@@ -297,22 +313,33 @@ class DownloadManager:
                 self._handle_line(job, line.rstrip("\n"))
             proc.wait()
 
-            if job.status == "cancelling":
-                self._cleanup_cancelled_outputs(job, download_dir)
-                job.status = "cancelled"
-                self._emit(EV_CANCELLED, job)
-            elif proc.returncode == 0:
-                job.status = "done"
+            # Resolve the final state under the lock so a cancel() racing the
+            # process exit can't flip a finished job back to cancelling: a
+            # clean exit always wins. Otherwise the cancelled path below would
+            # delete a file that finished downloading a moment earlier.
+            with self._lock:
+                if proc.returncode == 0:
+                    job.status = "done"
+                elif job.status == "cancelling":
+                    job.status = "cancelled"
+                else:
+                    job.status = "failed"
+
+            if job.status == "done":
                 job.percent = 100.0
                 self._emit(EV_DONE, job)
+            elif job.status == "cancelled":
+                self._cleanup_cancelled_outputs(job, download_dir)
+                self._emit(EV_CANCELLED, job)
             else:
-                job.status = "failed"
                 job.error = "yt-dlp reported an error (see log)."
                 self._emit(EV_FAILED, job)
         except Exception as e:  # noqa: BLE001 - report, don't crash the worker
-            job.status = "failed"
-            job.error = str(e)
-            self._emit(EV_FAILED, job)
+            # Whatever failed on our side, never leave yt-dlp running detached
+            # — it would keep downloading with no way left to cancel it.
+            if proc is not None:
+                self._terminate(proc)
+            self._finish_failed(job, str(e))
 
     def _handle_line(self, job, line):
         if not line:
@@ -321,8 +348,10 @@ class DownloadManager:
 
         # Only treat yt-dlp's own progress lines as progress — otherwise a "%"
         # anywhere in a title or message would jiggle the bar. With --newline,
-        # progress arrives as "[download]  12.3% of ...".
-        if line.startswith("[download]"):
+        # progress arrives as "[download]  12.3% of ...". Destination lines
+        # also start with "[download]" but carry a filename, which may itself
+        # contain a percent sign — skip those.
+        if line.startswith("[download]") and "Destination:" not in line:
             match = _PERCENT_RE.search(line)
             if match:
                 try:
