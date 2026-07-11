@@ -21,13 +21,18 @@ import tkinter as tk
 # Make the package importable when double-clicked from any working directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from oneclickdl import config, ytdlp, tray  # noqa: E402
+from oneclickdl import config, ytdlp, tray, single_instance  # noqa: E402
 from oneclickdl.downloader import DownloadManager  # noqa: E402
 from oneclickdl.server import make_server  # noqa: E402
 from oneclickdl.gui import Window  # noqa: E402
 
 
 def main():
+    # Only one copy should run at a time. If an old one is already up, take
+    # over: this launch shuts it down (freeing the localhost port) before we
+    # start our own window, tray icon, and server.
+    single_instance.acquire()
+
     settings = config.Settings.load()
 
     # yt-dlp may still be downloading when the first job arrives, so the
