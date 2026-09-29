@@ -21,6 +21,9 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from . import config
+# Imported by name, not as a module: `_process` has a local called `ytdlp`
+# (the binary path) that would shadow the module.
+from .ytdlp import js_runtime_args
 
 # ---- event names emitted to listeners ----
 EV_QUEUED = "queued"
@@ -33,6 +36,17 @@ EV_CANCELLED = "cancelled"
 
 # Once a job reaches one of these it's finished and can't be cancelled.
 _TERMINAL = ("done", "failed", "cancelled")
+
+# YouTube's default client (android_vr) regularly gets HTTP 403 on the media
+# URLs. When a run fails with one of these signatures we retry with other
+# player clients, which usually still work.
+_RETRY_CLIENTS = ("web_embedded", "web_safari", "mweb", "tv")
+_RETRYABLE_RE = re.compile(
+    r"HTTP Error 403|Requested format is not available|Only images are available"
+    r"|page needs to be reloaded|Sign in to confirm|HTTP Error 429"
+    r"|Unable to download|unable to download|Got error|Connection reset|timed out",
+    re.IGNORECASE,
+)
 
 _PERCENT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)%")
 
@@ -293,6 +307,9 @@ class DownloadManager:
             "--newline",
             "-P", download_dir,
         ]
+        # YouTube needs a JS runtime to decipher signatures. yt-dlp only
+        # enables deno by default, so name whatever this machine has.
+        cmd += js_runtime_args()
         if job.playlist:
             # Fetch every entry, grouped into a subfolder named after the
             # playlist so a 50-video playlist doesn't flood the download dir.
@@ -315,29 +332,58 @@ class DownloadManager:
         ]
         proc = None
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                # yt-dlp prints video titles in its output. Decode as UTF-8 —
-                # NOT the locale codec (cp1252 on Windows), which can raise
-                # UnicodeDecodeError mid-read — and replace any stray bytes so
-                # a weird title can never abort the read loop.
-                encoding="utf-8",
-                errors="replace",
-                **self._popen_kwargs(),
-            )
-            # Register the process so cancel() can reach it. If a cancel landed
-            # while we were spawning, honor it now.
-            with self._lock:
-                self._procs[job.id] = proc
-                kill_now = job.status == "cancelling"
-            if kill_now:
-                self._terminate(proc)
+            # Attempt 0 uses yt-dlp's defaults; later attempts force another
+            # YouTube player client. Non-YouTube URLs ignore the extractor arg.
+            attempts = [None] + list(_RETRY_CLIENTS)
+            for attempt, client in enumerate(attempts):
+                run_cmd = list(cmd)
+                if client:
+                    # Insert before the "--" separator so it stays an option.
+                    sep = run_cmd.index("--")
+                    run_cmd[sep:sep] = [
+                        "--extractor-args", f"youtube:player_client={client}",
+                    ]
+                    self._emit(
+                        EV_LOG, job,
+                        f"Retrying with YouTube client '{client}' "
+                        f"({attempt}/{len(_RETRY_CLIENTS)})...",
+                    )
+                proc = subprocess.Popen(
+                    run_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    # yt-dlp prints video titles in its output. Decode as UTF-8
+                    # — NOT the locale codec (cp1252 on Windows), which can
+                    # raise UnicodeDecodeError mid-read — and replace any
+                    # stray bytes so a weird title can never abort the loop.
+                    encoding="utf-8",
+                    errors="replace",
+                    **self._popen_kwargs(),
+                )
+                # Register the process so cancel() can reach it. If a cancel
+                # landed while we were spawning, honor it now.
+                with self._lock:
+                    self._procs[job.id] = proc
+                    kill_now = job.status == "cancelling"
+                if kill_now:
+                    self._terminate(proc)
 
-            for line in proc.stdout:
-                self._handle_line(job, line.rstrip("\n"))
-            proc.wait()
+                retryable = False
+                for line in proc.stdout:
+                    line = line.rstrip("\n")
+                    if line.startswith(("ERROR", "WARNING: Only images")) and (
+                        _RETRYABLE_RE.search(line)
+                    ):
+                        retryable = True
+                    self._handle_line(job, line)
+                proc.wait()
+
+                with self._lock:
+                    cancelling = job.status == "cancelling"
+                if proc.returncode == 0 or cancelling or not retryable:
+                    break
+                job.output_paths.clear()
+                job.percent = 0.0
 
             # Resolve the final state under the lock so a cancel() racing the
             # process exit can't flip a finished job back to cancelling: a

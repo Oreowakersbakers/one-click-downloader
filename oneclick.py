@@ -45,9 +45,19 @@ def main():
 
     # Resolve / download yt-dlp without blocking the UI.
     def setup_ytdlp():
-        state["ytdlp"] = ytdlp.ensure_ytdlp(window.log)
-        if state["ytdlp"]:
+        path = ytdlp.ensure_ytdlp(window.log)
+        state["ytdlp"] = path
+        if path:
+            # Usable straight away; the update runs after so a slow or failed
+            # check never delays the first download.
             window.set_status("Ready. Click a video's download button, or paste a link.")
+            if not ytdlp.find_js_runtime():
+                window.log(
+                    "Note: no JavaScript runtime found (deno/node/bun). YouTube "
+                    "downloads may fail or be missing formats — installing Node "
+                    "or Deno fixes it.\n"
+                )
+            ytdlp.update(path, window.log)
 
     threading.Thread(target=setup_ytdlp, daemon=True).start()
 
