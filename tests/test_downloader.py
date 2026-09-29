@@ -84,6 +84,41 @@ class DownloadManagerTests(unittest.TestCase):
             self.assertEqual(manager.active_jobs(), [])
 
 
+    def test_403_retries_with_another_youtube_client(self):
+        events = queue.Queue()
+        with tempfile.TemporaryDirectory() as download_dir:
+            manager = DownloadManager(
+                Settings(download_dir=download_dir), lambda: "fake-yt-dlp"
+            )
+            manager.add_listener(
+                lambda event, job, data=None: events.put(event)
+            )
+            cmds = []
+
+            def fake_popen(cmd, **kwargs):
+                cmds.append(cmd)
+                if len(cmds) == 1:
+                    return FakeProc(
+                        ["ERROR: unable to download video data: HTTP Error 403: Forbidden\n"],
+                        returncode=1,
+                    )
+                return FakeProc(["[download] 100% of 1.00MiB\n"])
+
+            with mock.patch("oneclickdl.downloader.subprocess.Popen", fake_popen):
+                manager.submit("https://www.youtube.com/watch?v=abc")
+                terminal = None
+                while terminal is None:
+                    event = events.get(timeout=2)
+                    if event in (EV_DONE, EV_FAILED):
+                        terminal = event
+
+            self.assertEqual(terminal, EV_DONE)
+            self.assertEqual(len(cmds), 2)
+            self.assertNotIn("--extractor-args", cmds[0])
+            self.assertIn("youtube:player_client=web_embedded", cmds[1])
+            # The option must stay before the "--" separator.
+            self.assertLess(cmds[1].index("--extractor-args"), cmds[1].index("--"))
+
     def test_cancel_racing_a_clean_exit_keeps_the_file(self):
         """A cancel that lands after yt-dlp already exited cleanly must not
         delete the finished download — the clean exit wins."""

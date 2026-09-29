@@ -2,12 +2,24 @@
 
 yt-dlp is the open-source engine that does the real work of pulling a video
 off YouTube/TikTok/X/etc. We never reimplement that; we just make sure a copy
-is present and hand it URLs.
+is present, kept reasonably fresh, and hand it URLs.
+
+Two things here exist purely to keep YouTube working:
+
+  * `update()` — YouTube changes constantly and yt-dlp ships fixes within
+    days, so a binary downloaded once and never touched again slowly rots
+    into "Sign in to confirm you're not a bot" errors.
+  * `find_js_runtime()` — modern YouTube extraction needs a JavaScript
+    runtime for signature deciphering. yt-dlp only enables deno by default,
+    so we look for whatever the machine actually has and name it explicitly.
 """
 
 import os
+import time
 import shutil
 import hashlib
+import functools
+import subprocess
 import urllib.request
 
 from . import config
@@ -17,6 +29,20 @@ YTDLP_SUMS_URL = (
     "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"
 )
 _DOWNLOAD_TIMEOUT = 60  # seconds, per network read
+
+# ---- self-update ----
+# How long a binary is considered fresh. Long enough that we're not hitting
+# GitHub on every launch, short enough to stay ahead of YouTube's changes.
+UPDATE_INTERVAL_DAYS = 7
+_UPDATE_TIMEOUT = 120  # seconds for the whole `yt-dlp -U` run
+# Touched after each completed check, so "already up to date" doesn't make us
+# re-check on every single launch (a no-op -U leaves the binary's mtime alone).
+_STAMP_PATH = os.path.join(config.BIN_DIR, ".last-update-check")
+
+# ---- JavaScript runtimes ----
+# In preference order. deno first because it's the one yt-dlp enables by
+# default; the others need naming via --js-runtimes before it will use them.
+JS_RUNTIMES = ("deno", "node", "bun")
 
 
 def find_ytdlp():
@@ -74,6 +100,98 @@ def ensure_ytdlp(log=lambda msg: None):
         _cleanup(tmp)
         log(f"Failed to download yt-dlp: {e}\n")
         return None
+
+
+@functools.lru_cache(maxsize=1)
+def find_js_runtime():
+    """Return the name of an installed JS runtime, or None if there isn't one.
+
+    YouTube extraction is deprecated without one — formats go missing and the
+    bot-check trips more often. Cached because PATH won't change mid-run.
+    """
+    for name in JS_RUNTIMES:
+        if shutil.which(name):
+            return name
+    return None
+
+
+def js_runtime_args():
+    """`--js-runtimes` arguments for the yt-dlp command line, or []."""
+    runtime = find_js_runtime()
+    return ["--js-runtimes", runtime] if runtime else []
+
+
+def _no_window():
+    """Keep `yt-dlp -U` from flashing a console window on Windows."""
+    if config.IS_WINDOWS:
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
+def _update_due():
+    try:
+        return (time.time() - os.path.getmtime(_STAMP_PATH)) > (
+            UPDATE_INTERVAL_DAYS * 86400
+        )
+    except OSError:
+        return True  # never checked (or the stamp is unreadable)
+
+
+def _stamp_checked():
+    try:
+        os.makedirs(config.BIN_DIR, exist_ok=True)
+        with open(_STAMP_PATH, "w", encoding="utf-8") as f:
+            f.write(str(int(time.time())))
+    except OSError:
+        pass  # a missing stamp only costs us an extra check next launch
+
+
+def update(path, log=lambda msg: None, force=False):
+    """Update our own yt-dlp copy in place, at most once every interval.
+
+    Deliberately a no-op unless `path` is the binary we downloaded ourselves:
+    a yt-dlp found on PATH belongs to the system's package manager (brew, pip,
+    winget) and is not ours to overwrite.
+
+    Failures are logged and swallowed — a stale binary still works well enough
+    to be worth running, so an update problem must never block downloading.
+    """
+    if path != config.YTDLP_BIN:
+        return
+    if not force and not _update_due():
+        return
+
+    log("Checking for a yt-dlp update...\n")
+    try:
+        proc = subprocess.run(
+            [path, "-U"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_UPDATE_TIMEOUT,
+            check=False,
+            **_no_window(),
+        )
+    except subprocess.TimeoutExpired:
+        log("yt-dlp update timed out — continuing with the current version.\n")
+        return
+    except OSError as e:
+        log(f"Could not run the yt-dlp updater: {e}\n")
+        return
+
+    # Only stamp after a run that actually completed, so a machine that's
+    # offline retries next launch instead of waiting out the whole interval.
+    _stamp_checked()
+
+    output = (proc.stdout or "") + (proc.stderr or "")
+    last = next(
+        (ln.strip() for ln in reversed(output.splitlines()) if ln.strip()), ""
+    )
+    if proc.returncode == 0:
+        log(f"{last or 'yt-dlp is up to date.'}\n")
+    else:
+        log(f"yt-dlp update failed ({last or 'unknown error'}) — using current version.\n")
 
 
 def _checksum_ok(path, log):
